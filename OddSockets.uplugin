@@ -1,0 +1,42 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0.0",
+	"FriendlyName": "OddSockets",
+	"Description": "Real-time messaging SDK for Unreal Engine with full Blueprint support. Provides seamless integration with the OddSockets platform including automatic manager discovery, worker load balancing, and comprehensive pub/sub messaging.",
+	"Category": "Networking",
+	"CreatedBy": "OddSockets",
+	"CreatedByURL": "https://oddsockets.com",
+	"DocsURL": "https://docs.oddsockets.com/unreal",
+	"MarketplaceURL": "",
+	"SupportURL": "https://github.com/oddsockets/unreal-sdk/issues",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "OddSockets",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"AdditionalDependencies": [
+				"Engine",
+				"Core",
+				"CoreUObject",
+				"HTTP",
+				"WebSockets",
+				"Json"
+			]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "WebSockets",
+			"Enabled": true
+		},
+		{
+			"Name": "HTTP",
+			"Enabled": true
+		}
+	]
+}

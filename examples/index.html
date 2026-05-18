@@ -1,0 +1,839 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OddSockets Unreal Engine SDK - Examples</title>
+    <link rel="stylesheet" href="../../shared/docs.css">
+    <style>
+        .hero {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 3rem 2rem;
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        .example-card {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 2rem;
+            margin: 2rem 0;
+            border-left: 4px solid #667eea;
+        }
+        .example-card h3 {
+            color: #667eea;
+            margin-bottom: 1rem;
+        }
+        .code-block {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+        .blueprint-note {
+            background: #e6f3ff;
+            border: 1px solid #b3d9ff;
+            border-radius: 4px;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-left: 4px solid #0066cc;
+        }
+        .nav-tabs {
+            display: flex;
+            gap: 1rem;
+            margin: 2rem 0;
+            border-bottom: 2px solid #e9ecef;
+        }
+        .nav-tab {
+            padding: 0.75rem 1.5rem;
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-bottom: none;
+            border-radius: 4px 4px 0 0;
+            text-decoration: none;
+            color: #495057;
+            transition: all 0.3s;
+        }
+        .nav-tab:hover, .nav-tab.active {
+            background: #667eea;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="hero">
+        <h1>🎮 Unreal Engine SDK Examples</h1>
+        <p>Complete examples for integrating OddSockets into your Unreal Engine projects</p>
+    </div>
+
+    <div class="container">
+        <div class="nav-tabs">
+            <a href="#basic-setup" class="nav-tab active">Basic Setup</a>
+            <a href="#chat-system" class="nav-tab">Chat System</a>
+            <a href="#multiplayer" class="nav-tab">Multiplayer Sync</a>
+            <a href="#presence" class="nav-tab">Presence Tracking</a>
+            <a href="#blueprint" class="nav-tab">Blueprint Examples</a>
+        </div>
+
+        <section id="basic-setup">
+            <div class="example-card">
+                <h3>🚀 Basic Setup Example</h3>
+                <p>This example shows how to set up a basic OddSockets client in your Unreal Engine project.</p>
+
+                <h4>Header File (MyGameActor.h)</h4>
+                <div class="code-block">
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameFramework/Actor.h"
+#include "OddSocketsClient.h"
+#include "OddSocketsChannel.h"
+#include "MyGameActor.generated.h"
+
+UCLASS()
+class MYGAME_API AMyGameActor : public AActor
+{
+    GENERATED_BODY()
+
+public:
+    AMyGameActor();
+
+protected:
+    virtual void BeginPlay() override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+    // OddSockets Components
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "OddSockets")
+    AOddSocketsClient* OddSocketsClient;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "OddSockets")
+    UOddSocketsChannel* GameChannel;
+
+    // Event Handlers
+    UFUNCTION()
+    void OnConnected();
+
+    UFUNCTION()
+    void OnDisconnected(const FString& Reason);
+
+    UFUNCTION()
+    void OnError(const FString& ErrorMessage);
+
+    UFUNCTION()
+    void OnChannelMessage(const FOddSocketsChannelMessageData& MessageData);
+
+    // Public Methods
+    UFUNCTION(BlueprintCallable, Category = "Game")
+    void SendGameMessage(const FString& Message);
+};
+                </div>
+
+                <h4>Implementation File (MyGameActor.cpp)</h4>
+                <div class="code-block">
+#include "MyGameActor.h"
+#include "Engine/Engine.h"
+
+AMyGameActor::AMyGameActor()
+{
+    PrimaryActorTick.bCanEverTick = false;
+}
+
+void AMyGameActor::BeginPlay()
+{
+    Super::BeginPlay();
+
+    // Spawn OddSockets client
+    OddSocketsClient = GetWorld()->SpawnActor&lt;AOddSocketsClient&gt;();
+
+    // Configure the client
+    FOddSocketsConfig Config;
+    Config.ApiKey = TEXT("your-api-key-here");
+    Config.UserId = FString::Printf(TEXT("player_%d"), FMath::RandRange(1000, 9999));
+    Config.bAutoConnect = true;
+    Config.ReconnectAttempts = 5;
+    Config.Timeout = 10;
+    Config.HeartbeatInterval = 30;
+    Config.LogLevel = EOddSocketsLogLevel::Info;
+
+    // Initialize client
+    OddSocketsClient->Initialize(Config);
+
+    // Bind event handlers
+    OddSocketsClient->OnConnected.AddDynamic(this, &AMyGameActor::OnConnected);
+    OddSocketsClient->OnDisconnected.AddDynamic(this, &AMyGameActor::OnDisconnected);
+    OddSocketsClient->OnError.AddDynamic(this, &AMyGameActor::OnError);
+
+    // Connect to OddSockets
+    OddSocketsClient->ConnectAsync();
+}
+
+void AMyGameActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    if (OddSocketsClient)
+    {
+        OddSocketsClient->Disconnect();
+    }
+    Super::EndPlay(EndPlayReason);
+}
+
+void AMyGameActor::OnConnected()
+{
+    UE_LOG(LogTemp, Log, TEXT("Connected to OddSockets!"));
+
+    // Get a channel and subscribe
+    GameChannel = OddSocketsClient->GetChannel(TEXT("game-lobby"));
+
+    // Configure subscription options
+    FOddSocketsSubscriptionOptions Options;
+    Options.MaxHistory = 50;
+    Options.bEnablePresence = true;
+    Options.bRetainHistory = true;
+
+    // Bind channel events
+    GameChannel->OnMessage.AddDynamic(this, &AMyGameActor::OnChannelMessage);
+
+    // Subscribe to the channel
+    GameChannel->SubscribeAsync(Options);
+}
+
+void AMyGameActor::OnDisconnected(const FString& Reason)
+{
+    UE_LOG(LogTemp, Warning, TEXT("Disconnected from OddSockets: %s"), *Reason);
+}
+
+void AMyGameActor::OnError(const FString& ErrorMessage)
+{
+    UE_LOG(LogTemp, Error, TEXT("OddSockets error: %s"), *ErrorMessage);
+}
+
+void AMyGameActor::OnChannelMessage(const FOddSocketsChannelMessageData& MessageData)
+{
+    UE_LOG(LogTemp, Log, TEXT("Received message from %s: %s"), 
+           *MessageData.Sender, *MessageData.Message);
+}
+
+void AMyGameActor::SendGameMessage(const FString& Message)
+{
+    if (GameChannel && GameChannel->IsSubscribed())
+    {
+        FOddSocketsPublishOptions Options;
+        Options.Ttl = 3600; // 1 hour TTL
+        
+        GameChannel->PublishAsync(Message, Options);
+    }
+}
+                </div>
+            </div>
+        </section>
+
+        <section id="chat-system">
+            <div class="example-card">
+                <h3>💬 Chat System Example</h3>
+                <p>A complete chat system implementation with presence tracking and message history.</p>
+
+                <h4>Chat Manager Header (ChatManager.h)</h4>
+                <div class="code-block">
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameFramework/Actor.h"
+#include "OddSocketsClient.h"
+#include "OddSocketsChannel.h"
+#include "ChatManager.generated.h"
+
+USTRUCT(BlueprintType)
+struct FChatMessage
+{
+    GENERATED_BODY()
+
+    UPROPERTY(BlueprintReadOnly, Category = "Chat")
+    FString Username;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Chat")
+    FString Message;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Chat")
+    FDateTime Timestamp;
+
+    FChatMessage()
+    {
+        Username = TEXT("");
+        Message = TEXT("");
+        Timestamp = FDateTime::Now();
+    }
+};
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnChatMessageReceived, const FChatMessage&, ChatMessage);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnUserPresenceChanged, const FString&, Username, bool, bJoined);
+
+UCLASS(BlueprintType, Blueprintable)
+class MYGAME_API AChatManager : public AActor
+{
+    GENERATED_BODY()
+
+public:
+    AChatManager();
+
+    // Events
+    UPROPERTY(BlueprintAssignable, Category = "Chat Events")
+    FOnChatMessageReceived OnChatMessageReceived;
+
+    UPROPERTY(BlueprintAssignable, Category = "Chat Events")
+    FOnUserPresenceChanged OnUserPresenceChanged;
+
+    // Public Methods
+    UFUNCTION(BlueprintCallable, Category = "Chat")
+    void JoinChatRoom(const FString& RoomName);
+
+    UFUNCTION(BlueprintCallable, Category = "Chat")
+    void LeaveChatRoom();
+
+    UFUNCTION(BlueprintCallable, Category = "Chat")
+    void SendChatMessage(const FString& Message);
+
+    UFUNCTION(BlueprintCallable, Category = "Chat")
+    void SetUsername(const FString& NewUsername);
+
+    UFUNCTION(BlueprintPure, Category = "Chat")
+    TArray&lt;FChatMessage&gt; GetChatHistory() const { return ChatHistory; }
+
+    UFUNCTION(BlueprintPure, Category = "Chat")
+    TArray&lt;FString&gt; GetOnlineUsers() const { return OnlineUsers; }
+
+protected:
+    virtual void BeginPlay() override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+private:
+    UPROPERTY()
+    AOddSocketsClient* OddSocketsClient;
+
+    UPROPERTY()
+    UOddSocketsChannel* ChatChannel;
+
+    UPROPERTY()
+    FString Username;
+
+    UPROPERTY()
+    FString CurrentRoom;
+
+    UPROPERTY()
+    TArray&lt;FChatMessage&gt; ChatHistory;
+
+    UPROPERTY()
+    TArray&lt;FString&gt; OnlineUsers;
+
+    // Event Handlers
+    UFUNCTION()
+    void OnConnected();
+
+    UFUNCTION()
+    void OnChannelMessage(const FOddSocketsChannelMessageData& MessageData);
+
+    UFUNCTION()
+    void OnPresenceChange(const FOddSocketsChannelPresenceChangeData& PresenceData);
+
+    // Helper Methods
+    FChatMessage ParseChatMessage(const FString& JsonMessage);
+    FString CreateChatMessageJson(const FString& Message);
+};
+                </div>
+
+                <h4>Chat Manager Implementation (ChatManager.cpp)</h4>
+                <div class="code-block">
+#include "ChatManager.h"
+#include "Engine/Engine.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
+
+AChatManager::AChatManager()
+{
+    PrimaryActorTick.bCanEverTick = false;
+    Username = FString::Printf(TEXT("Player_%d"), FMath::RandRange(1000, 9999));
+}
+
+void AChatManager::BeginPlay()
+{
+    Super::BeginPlay();
+
+    // Initialize OddSockets client
+    OddSocketsClient = GetWorld()->SpawnActor&lt;AOddSocketsClient&gt;();
+    
+    FOddSocketsConfig Config;
+    Config.ApiKey = TEXT("your-api-key-here");
+    Config.UserId = Username;
+    Config.bAutoConnect = true;
+    
+    OddSocketsClient->Initialize(Config);
+    OddSocketsClient->OnConnected.AddDynamic(this, &AChatManager::OnConnected);
+    OddSocketsClient->ConnectAsync();
+}
+
+void AChatManager::OnConnected()
+{
+    UE_LOG(LogTemp, Log, TEXT("Chat system connected to OddSockets"));
+}
+
+void AChatManager::JoinChatRoom(const FString& RoomName)
+{
+    if (!OddSocketsClient || !OddSocketsClient->IsConnected())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Cannot join chat room: not connected"));
+        return;
+    }
+
+    CurrentRoom = RoomName;
+    ChatChannel = OddSocketsClient->GetChannel(RoomName);
+    
+    FOddSocketsSubscriptionOptions Options;
+    Options.MaxHistory = 100;
+    Options.bEnablePresence = true;
+    Options.bRetainHistory = true;
+    
+    ChatChannel->OnMessage.AddDynamic(this, &AChatManager::OnChannelMessage);
+    ChatChannel->OnPresenceChange.AddDynamic(this, &AChatManager::OnPresenceChange);
+    
+    ChatChannel->SubscribeAsync(Options);
+    
+    UE_LOG(LogTemp, Log, TEXT("Joined chat room: %s"), *RoomName);
+}
+
+void AChatManager::SendChatMessage(const FString& Message)
+{
+    if (!ChatChannel || !ChatChannel->IsSubscribed())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Cannot send message: not subscribed to channel"));
+        return;
+    }
+
+    FString ChatJson = CreateChatMessageJson(Message);
+    
+    FOddSocketsPublishOptions Options;
+    Options.Ttl = 3600; // 1 hour TTL
+    
+    ChatChannel->PublishAsync(ChatJson, Options);
+}
+
+void AChatManager::OnChannelMessage(const FOddSocketsChannelMessageData& MessageData)
+{
+    FChatMessage ChatMessage = ParseChatMessage(MessageData.Message);
+    
+    if (!ChatMessage.Username.IsEmpty())
+    {
+        ChatHistory.Add(ChatMessage);
+        
+        // Keep only last 100 messages
+        if (ChatHistory.Num() > 100)
+        {
+            ChatHistory.RemoveAt(0);
+        }
+        
+        OnChatMessageReceived.Broadcast(ChatMessage);
+    }
+}
+
+void AChatManager::OnPresenceChange(const FOddSocketsChannelPresenceChangeData& PresenceData)
+{
+    bool bJoined = PresenceData.Action == TEXT("join");
+    FString Username = PresenceData.User.UserId;
+    
+    if (bJoined)
+    {
+        OnlineUsers.AddUnique(Username);
+    }
+    else
+    {
+        OnlineUsers.Remove(Username);
+    }
+    
+    OnUserPresenceChanged.Broadcast(Username, bJoined);
+    
+    UE_LOG(LogTemp, Log, TEXT("User %s %s the chat"), 
+           *Username, bJoined ? TEXT("joined") : TEXT("left"));
+}
+
+FString AChatManager::CreateChatMessageJson(const FString& Message)
+{
+    TSharedPtr&lt;FJsonObject&gt; JsonObject = MakeShareable(new FJsonObject);
+    JsonObject->SetStringField(TEXT("type"), TEXT("chat"));
+    JsonObject->SetStringField(TEXT("username"), Username);
+    JsonObject->SetStringField(TEXT("message"), Message);
+    JsonObject->SetStringField(TEXT("timestamp"), FDateTime::UtcNow().ToIso8601());
+    
+    FString OutputString;
+    TSharedRef&lt;TJsonWriter&lt;&gt;&gt; Writer = TJsonWriterFactory&lt;&gt;::Create(&OutputString);
+    FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer);
+    
+    return OutputString;
+}
+
+FChatMessage AChatManager::ParseChatMessage(const FString& JsonMessage)
+{
+    FChatMessage ChatMessage;
+    
+    TSharedPtr&lt;FJsonObject&gt; JsonObject;
+    TSharedRef&lt;TJsonReader&lt;&gt;&gt; Reader = TJsonReaderFactory&lt;&gt;::Create(JsonMessage);
+    
+    if (FJsonSerializer::Deserialize(Reader, JsonObject) && JsonObject.IsValid())
+    {
+        FString Type;
+        if (JsonObject->TryGetStringField(TEXT("type"), Type) && Type == TEXT("chat"))
+        {
+            JsonObject->TryGetStringField(TEXT("username"), ChatMessage.Username);
+            JsonObject->TryGetStringField(TEXT("message"), ChatMessage.Message);
+            
+            FString TimestampStr;
+            if (JsonObject->TryGetStringField(TEXT("timestamp"), TimestampStr))
+            {
+                FDateTime::ParseIso8601(*TimestampStr, ChatMessage.Timestamp);
+            }
+        }
+    }
+    
+    return ChatMessage;
+}
+                </div>
+
+                <div class="blueprint-note">
+                    <strong>Blueprint Usage:</strong> This chat manager can be used directly in Blueprints. 
+                    Bind to the <code>OnChatMessageReceived</code> and <code>OnUserPresenceChanged</code> events 
+                    to update your UI when messages arrive or users join/leave.
+                </div>
+            </div>
+        </section>
+
+        <section id="multiplayer">
+            <div class="example-card">
+                <h3>🎮 Multiplayer Game State Sync</h3>
+                <p>Synchronize player positions and game events across multiple clients.</p>
+
+                <div class="code-block">
+// GameStateSyncer.h
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameFramework/Actor.h"
+#include "OddSocketsClient.h"
+#include "OddSocketsChannel.h"
+#include "GameStateSyncer.generated.h"
+
+USTRUCT(BlueprintType)
+struct FPlayerState
+{
+    GENERATED_BODY()
+
+    UPROPERTY(BlueprintReadWrite, Category = "Player State")
+    FString PlayerId;
+
+    UPROPERTY(BlueprintReadWrite, Category = "Player State")
+    FVector Position;
+
+    UPROPERTY(BlueprintReadWrite, Category = "Player State")
+    FRotator Rotation;
+
+    UPROPERTY(BlueprintReadWrite, Category = "Player State")
+    float Health;
+
+    UPROPERTY(BlueprintReadWrite, Category = "Player State")
+    int32 Score;
+
+    FPlayerState()
+    {
+        PlayerId = TEXT("");
+        Position = FVector::ZeroVector;
+        Rotation = FRotator::ZeroRotator;
+        Health = 100.0f;
+        Score = 0;
+    }
+};
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPlayerStateUpdated, const FPlayerState&, PlayerState);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnGameEvent, const FString&, EventType, const FString&, EventData);
+
+UCLASS(BlueprintType, Blueprintable)
+class MYGAME_API AGameStateSyncer : public AActor
+{
+    GENERATED_BODY()
+
+public:
+    AGameStateSyncer();
+
+    // Events
+    UPROPERTY(BlueprintAssignable, Category = "Game Events")
+    FOnPlayerStateUpdated OnPlayerStateUpdated;
+
+    UPROPERTY(BlueprintAssignable, Category = "Game Events")
+    FOnGameEvent OnGameEvent;
+
+    // Public Methods
+    UFUNCTION(BlueprintCallable, Category = "Game Sync")
+    void JoinGameSession(const FString& SessionId);
+
+    UFUNCTION(BlueprintCallable, Category = "Game Sync")
+    void SyncPlayerPosition(const FVector& Position, const FRotator& Rotation);
+
+    UFUNCTION(BlueprintCallable, Category = "Game Sync")
+    void SyncPlayerHealth(float Health);
+
+    UFUNCTION(BlueprintCallable, Category = "Game Sync")
+    void SyncPlayerScore(int32 Score);
+
+    UFUNCTION(BlueprintCallable, Category = "Game Sync")
+    void SendGameEvent(const FString& EventType, const FString& EventData);
+
+    UFUNCTION(BlueprintPure, Category = "Game Sync")
+    TArray&lt;FPlayerState&gt; GetAllPlayerStates() const;
+
+protected:
+    virtual void BeginPlay() override;
+
+private:
+    UPROPERTY()
+    AOddSocketsClient* OddSocketsClient;
+
+    UPROPERTY()
+    UOddSocketsChannel* GameChannel;
+
+    UPROPERTY()
+    FString PlayerId;
+
+    UPROPERTY()
+    FString CurrentSession;
+
+    UPROPERTY()
+    TMap&lt;FString, FPlayerState&gt; PlayerStates;
+
+    UPROPERTY()
+    FTimerHandle SyncTimer;
+
+    // Event Handlers
+    UFUNCTION()
+    void OnConnected();
+
+    UFUNCTION()
+    void OnGameMessage(const FOddSocketsChannelMessageData& MessageData);
+
+    // Helper Methods
+    void ProcessPlayerStateUpdate(const FString& JsonMessage);
+    void ProcessGameEvent(const FString& JsonMessage);
+    FString CreatePlayerStateJson(const FString& UpdateType, const FString& Data);
+    void PeriodicSync();
+};
+
+// GameStateSyncer.cpp
+#include "GameStateSyncer.h"
+#include "Engine/Engine.h"
+#include "TimerManager.h"
+
+AGameStateSyncer::AGameStateSyncer()
+{
+    PrimaryActorTick.bCanEverTick = false;
+    PlayerId = FString::Printf(TEXT("player_%d"), FMath::RandRange(10000, 99999));
+}
+
+void AGameStateSyncer::BeginPlay()
+{
+    Super::BeginPlay();
+
+    OddSocketsClient = GetWorld()->SpawnActor&lt;AOddSocketsClient&gt;();
+    
+    FOddSocketsConfig Config;
+    Config.ApiKey = TEXT("your-api-key-here");
+    Config.UserId = PlayerId;
+    
+    OddSocketsClient->Initialize(Config);
+    OddSocketsClient->OnConnected.AddDynamic(this, &AGameStateSyncer::OnConnected);
+    OddSocketsClient->ConnectAsync();
+}
+
+void AGameStateSyncer::JoinGameSession(const FString& SessionId)
+{
+    CurrentSession = SessionId;
+    GameChannel = OddSocketsClient->GetChannel(FString::Printf(TEXT("game-session-%s"), *SessionId));
+    
+    FOddSocketsSubscriptionOptions Options;
+    Options.MaxHistory = 20;
+    Options.bEnablePresence = true;
+    
+    GameChannel->OnMessage.AddDynamic(this, &AGameStateSyncer::OnGameMessage);
+    GameChannel->SubscribeAsync(Options);
+    
+    // Start periodic sync timer
+    GetWorld()->GetTimerManager().SetTimer(SyncTimer, this, &AGameStateSyncer::PeriodicSync, 0.1f, true);
+}
+
+void AGameStateSyncer::SyncPlayerPosition(const FVector& Position, const FRotator& Rotation)
+{
+    if (!GameChannel || !GameChannel->IsSubscribed()) return;
+
+    FString PositionData = FString::Printf(
+        TEXT("{\"x\":%.2f,\"y\":%.2f,\"z\":%.2f,\"pitch\":%.2f,\"yaw\":%.2f,\"roll\":%.2f}"),
+        Position.X, Position.Y, Position.Z, Rotation.Pitch, Rotation.Yaw, Rotation.Roll
+    );
+    
+    FString JsonMessage = CreatePlayerStateJson(TEXT("position"), PositionData);
+    GameChannel->PublishAsync(JsonMessage, FOddSocketsPublishOptions());
+}
+
+void AGameStateSyncer::SendGameEvent(const FString& EventType, const FString& EventData)
+{
+    if (!GameChannel || !GameChannel->IsSubscribed()) return;
+
+    FString EventJson = FString::Printf(
+        TEXT("{\"type\":\"game_event\",\"event_type\":\"%s\",\"event_data\":\"%s\",\"player_id\":\"%s\"}"),
+        *EventType, *EventData, *PlayerId
+    );
+    
+    GameChannel->PublishAsync(EventJson, FOddSocketsPublishOptions());
+}
+
+void AGameStateSyncer::OnGameMessage(const FOddSocketsChannelMessageData& MessageData)
+{
+    // Parse message type and route to appropriate handler
+    if (MessageData.Message.Contains(TEXT("\"type\":\"player_state\"")))
+    {
+        ProcessPlayerStateUpdate(MessageData.Message);
+    }
+    else if (MessageData.Message.Contains(TEXT("\"type\":\"game_event\"")))
+    {
+        ProcessGameEvent(MessageData.Message);
+    }
+}
+                </div>
+            </div>
+        </section>
+
+        <section id="presence">
+            <div class="example-card">
+                <h3>👥 Presence Tracking Example</h3>
+                <p>Track user presence and display online status in real-time.</p>
+
+                <div class="code-block">
+// PresenceManager.h
+UCLASS(BlueprintType, Blueprintable)
+class MYGAME_API APresenceManager : public AActor
+{
+    GENERATED_BODY()
+
+public:
+    UFUNCTION(BlueprintCallable, Category = "Presence")
+    void UpdateUserStatus(const FString& Status);
+
+    UFUNCTION(BlueprintCallable, Category = "Presence")
+    void UpdateUserLocation(const FString& Location);
+
+    UFUNCTION(BlueprintCallable, Category = "Presence")
+    void SetUserAway(bool bIsAway);
+
+    UFUNCTION(BlueprintPure, Category = "Presence")
+    TArray&lt;FString&gt; GetOnlineUsers() const;
+
+    UFUNCTION(BlueprintPure, Category = "Presence")
+    int32 GetOnlineUserCount() const;
+
+private:
+    UFUNCTION()
+    void OnPresenceUpdate(const FOddSocketsChannelPresenceData& PresenceData);
+
+    UFUNCTION()
+    void OnPresenceChange(const FOddSocketsChannelPresenceChangeData& PresenceChangeData);
+
+    void UpdateMyPresenceState();
+};
+
+// PresenceManager.cpp
+void APresenceManager::UpdateUserStatus(const FString& Status)
+{
+    if (!PresenceChannel || !PresenceChannel->IsSubscribed()) return;
+
+    TMap&lt;FString, FString&gt; State;
+    State.Add(TEXT("status"), Status);
+    State.Add(TEXT("last_update"), FDateTime::UtcNow().ToIso8601());
+    
+    PresenceChannel->UpdateStateAsync(State);
+}
+
+void APresenceManager::OnPresenceChange(const FOddSocketsChannelPresenceChangeData& PresenceChangeData)
+{
+    FString UserId = PresenceChangeData.User.UserId;
+    bool bJoined = PresenceChangeData.Action == TEXT("join");
+    
+    if (bJoined)
+    {
+        OnlineUsers.AddUnique(UserId);
+        UE_LOG(LogTemp, Log, TEXT("User %s came online"), *UserId);
+    }
+    else
+    {
+        OnlineUsers.Remove(UserId);
+        UE_LOG(LogTemp, Log, TEXT("User %s went offline"), *UserId);
+    }
+    
+    // Broadcast presence change event
+    OnUserPresenceChanged.Broadcast(UserId, bJoined);
+}
+                </div>
+            </div>
+        </section>
+
+        <section id="blueprint">
+            <div class="example-card">
+                <h3>🎨 Blueprint Examples</h3>
+                <p>Step-by-step Blueprint setup for common OddSockets operations.</p>
+
+                <div class="blueprint-note">
+                    <h4>Basic Connection Setup in Blueprints:</h4>
+                    <ol>
+                        <li><strong>Event BeginPlay</strong> → <strong>Spawn Actor from Class</strong> (OddSockets Client)</li>
+                        <li><strong>Make OddSockets Config</strong> → Set API Key, User ID, etc.</li>
+                        <li><strong>Initialize</strong> (OddSockets Client) → Connect Config input</li>
+                        <li><strong>Connect Async</strong> (OddSockets Client)</li>
+                        <li>Bind <strong>On Connected</strong> event to your connection handler</li>
+                    </ol>
+                </div>
+
+                <div class="blueprint-note">
+                    <h4>Channel Subscription in Blueprints:</h4>
+                    <ol>
+                        <li>In your <strong>On Connected</strong> event handler:</li>
+                        <li><strong>Get Channel</strong> (OddSockets Client) → Set Channel Name</li>
+                        <li><strong>Make Subscription Options</strong> → Configure history, presence, etc.</li>
+                        <li><strong>Subscribe Async</strong> (Channel) → Connect Options input</li>
+                        <li>Bind <strong>On Message</strong> event to your message handler</li>
+                    </ol>
+                </div>
+
+                <div class="blueprint-note">
+                    <h4>Sending Messages in Blueprints:</h4>
+                    <ol>
+                        <li><strong>Is Subscribed</strong> (Channel) → Branch (True/False)</li>
+                        <li>If True: <strong>Publish Async</strong> (Channel)</li>
+                        <li>Connect your message string to the Message input</li>
+                        <li>Optionally create <strong>Publish Options</strong> for TTL, metadata</li>
+                    </ol>
+                </div>
+
+                <div class="blueprint-note">
+                    <h4>Handling Presence in Blueprints:</h4>
+                    <ol>
+                        <li>Enable presence in <strong>Subscription Options</strong></li>
+                        <li>Bind to <strong>On Presence Change</strong> event</li>
+                        <li>Use <strong>Get Presence Async</strong> to retrieve current users</li>
+                        <li>Use <strong>Update State Async</strong> to update your user state</li>
+                    </ol>
+                </div>
+
+                <h4>Blueprint Event Handling Example:</h4>
+                <div class="code-block">
+// Blueprint Event Graph pseudo-code:
+
+Event BeginPlay
+├── Spawn Actor from Class (OddSockets Client)
+├── Make O

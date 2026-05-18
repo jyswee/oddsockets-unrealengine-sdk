@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OddSockets Unreal Engine SDK Documentation</title>
+    <link rel="stylesheet" href="../../shared/docs.css">
+    <style>
+        .hero {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 4rem 2rem;
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+        .hero h1 {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        .hero p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin: 3rem 0;
+        }
+        .feature {
+            background: #f8f9fa;
+            padding: 2rem;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        .feature h3 {
+            color: #667eea;
+            margin-bottom: 1rem;
+        }
+        .code-example {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+            overflow-x: auto;
+        }
+        .blueprint-section {
+            background: #e6f3ff;
+            padding: 2rem;
+            border-radius: 8px;
+            margin: 2rem 0;
+            border-left: 4px solid #0066cc;
+        }
+        .nav-links {
+            display: flex;
+            gap: 1rem;
+            margin: 2rem 0;
+            flex-wrap: wrap;
+        }
+        .nav-link {
+            background: #667eea;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            text-decoration: none;
+            border-radius: 4px;
+            transition: background 0.3s;
+        }
+        .nav-link:hover {
+            background: #5a67d8;
+        }
+    </style>
+</head>
+<body>
+    <div class="hero">
+        <h1>🎮 OddSockets Unreal Engine SDK</h1>
+        <p>Real-time messaging for Unreal Engine with full Blueprint support and C++ integration</p>
+    </div>
+
+    <div class="container">
+        <div class="nav-links">
+            <a href="#quick-start" class="nav-link">Quick Start</a>
+            <a href="#cpp-api" class="nav-link">C++ API</a>
+            <a href="#blueprint-api" class="nav-link">Blueprint API</a>
+            <a href="#examples" class="nav-link">Examples</a>
+            <a href="../README.md" class="nav-link">Full Documentation</a>
+            <a href="../JAVASCRIPT_PATTERN_COMPLIANCE.md" class="nav-link">Compliance Guide</a>
+        </div>
+
+        <section id="overview">
+            <h2>📋 Overview</h2>
+            <p>The OddSockets Unreal Engine SDK provides seamless real-time messaging integration with full Blueprint support and native C++ API. Built following the JavaScript SDK pattern for consistent behavior across all platforms.</p>
+
+            <div class="features">
+                <div class="feature">
+                    <h3>🎯 Blueprint Integration</h3>
+                    <p>Full visual scripting support with Blueprint nodes for all operations including connection management, channel subscriptions, and message publishing.</p>
+                </div>
+                <div class="feature">
+                    <h3>⚡ C++ API</h3>
+                    <p>Native C++ integration with Actor-based architecture, automatic lifecycle management, and comprehensive event system.</p>
+                </div>
+                <div class="feature">
+                    <h3>🔄 Auto-Reconnection</h3>
+                    <p>Intelligent reconnection with exponential backoff, session stickiness, and automatic worker assignment.</p>
+                </div>
+                <div class="feature">
+                    <h3>👥 Presence & History</h3>
+                    <p>Real-time user presence tracking, message history, and state management with Blueprint-friendly data structures.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="quick-start">
+            <h2>🚀 Quick Start</h2>
+            
+            <h3>1. Installation</h3>
+            <ol>
+                <li>Copy the <code>OddSockets</code> plugin to your project's <code>Plugins</code> directory</li>
+                <li>Add the plugin to your <code>.uproject</code> file</li>
+                <li>Regenerate project files and compile</li>
+            </ol>
+
+            <h3>2. Basic Setup</h3>
+            <div class="code-example">
+// In your actor's header file
+UCLASS()
+class MYGAME_API AMyGameActor : public AActor
+{
+    GENERATED_BODY()
+
+protected:
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "OddSockets")
+    AOddSocketsClient* OddSocketsClient;
+
+    UFUNCTION()
+    void OnConnected();
+
+    UFUNCTION()
+    void OnChannelMessage(const FOddSocketsChannelMessageData& MessageData);
+};
+            </div>
+
+            <div class="code-example">
+// In your actor's implementation
+void AMyGameActor::BeginPlay()
+{
+    Super::BeginPlay();
+
+    // Spawn OddSockets client
+    OddSocketsClient = GetWorld()->SpawnActor&lt;AOddSocketsClient&gt;();
+
+    // Configure the client
+    FOddSocketsConfig Config;
+    Config.ApiKey = TEXT("your-api-key-here");
+    Config.UserId = TEXT("player-123");
+    Config.bAutoConnect = true;
+
+    // Initialize and connect
+    OddSocketsClient->Initialize(Config);
+    OddSocketsClient->OnConnected.AddDynamic(this, &AMyGameActor::OnConnected);
+    OddSocketsClient->ConnectAsync();
+}
+            </div>
+        </section>
+
+        <section id="cpp-api">
+            <h2>💻 C++ API Reference</h2>
+
+            <h3>AOddSocketsClient</h3>
+            <p>Main client class for connecting to OddSockets platform.</p>
+
+            <h4>Key Methods:</h4>
+            <ul>
+                <li><code>Initialize(Config)</code> - Initialize client with configuration</li>
+                <li><code>ConnectAsync()</code> - Connect to OddSockets platform</li>
+                <li><code>GetChannel(ChannelName)</code> - Get or create a channel</li>
+                <li><code>PublishBulkAsync(Messages)</code> - Publish multiple messages</li>
+            </ul>
+
+            <h4>Events:</h4>
+            <ul>
+                <li><code>OnConnected</code> - Fired when successfully connected</li>
+                <li><code>OnDisconnected</code> - Fired when disconnected</li>
+                <li><code>OnError</code> - Fired when an error occurs</li>
+                <li><code>OnWorkerAssigned</code> - Fired when assigned to a worker</li>
+            </ul>
+
+            <h3>UOddSocketsChannel</h3>
+            <p>Channel class for pub/sub messaging operations.</p>
+
+            <h4>Key Methods:</h4>
+            <ul>
+                <li><code>SubscribeAsync(Options)</code> - Subscribe to channel</li>
+                <li><code>PublishAsync(Message, Options)</code> - Publish a message</li>
+                <li><code>GetHistoryAsync(Options)</code> - Get message history</li>
+                <li><code>GetPresenceAsync()</code> - Get current presence</li>
+            </ul>
+
+            <div class="code-example">
+// Channel usage example
+void AMyGameActor::OnConnected()
+{
+    UOddSocketsChannel* GameChannel = OddSocketsClient->GetChannel(TEXT("game-lobby"));
+    
+    FOddSocketsSubscriptionOptions Options;
+    Options.MaxHistory = 50;
+    Options.bEnablePresence = true;
+    
+    GameChannel->OnMessage.AddDynamic(this, &AMyGameActor::OnChannelMessage);
+    GameChannel->SubscribeAsync(Options);
+}
+            </div>
+        </section>
+
+        <section id="blueprint-api">
+            <h2>🎨 Blueprint API</h2>
+
+            <div class="blueprint-section">
+                <h3>Blueprint Integration</h3>
+                <p>The OddSockets SDK provides full Blueprint support with visual nodes for all operations:</p>
+
+                <h4>Available Blueprint Nodes:</h4>
+                <ul>
+                    <li><strong>Spawn OddSockets Client Actor</strong> - Create client instance</li>
+                    <li><strong>Initialize</strong> - Configure client with settings</li>
+                    <li><strong>Connect Async</strong> - Establish connection</li>
+                    <li><strong>Get Channel</strong> - Access or create channels</li>
+                    <li><strong>Subscribe Async</strong> - Subscribe to channel messages</li>
+                    <li><strong>Publish Async</strong> - Send messages to channels</li>
+                    <li><strong>Get Presence Async</strong> - Retrieve user presence</li>
+                    <li><strong>Get History Async</strong> - Fetch message history</li>
+                </ul>
+
+                <h4>Blueprint Events:</h4>
+                <ul>
+                    <li><strong>On Connected</strong> - Connection established</li>
+                    <li><strong>On Message</strong> - Message received</li>
+                    <li><strong>On Presence Change</strong> - User joined/left</li>
+                    <li><strong>On Error</strong> - Error occurred</li>
+                </ul>
+
+                <h4>Blueprint Workflow:</h4>
+                <ol>
+                    <li>Spawn OddSockets Client Actor</li>
+                    <li>Create OddSockets Config struct</li>
+                    <li>Set API Key and configuration</li>
+                    <li>Call Initialize with config</li>
+                    <li>Bind to On Connected event</li>
+                    <li>Call Connect Async</li>
+                    <li>In On Connected: Get Channel and Subscribe</li>
+                </ol>
+            </div>
+        </section>
+
+        <section id="examples">
+            <h2>📚 Examples</h2>
+
+            <h3>Chat System</h3>
+            <div class="code-example">
+// Chat manager implementation
+void AChatManager::JoinChatRoom(const FString& RoomName)
+{
+    ChatChannel = OddSocketsClient->GetChannel(RoomName);
+    
+    FOddSocketsSubscriptionOptions Options;
+    Options.MaxHistory = 50;
+    Options.bEnablePresence = true;
+    
+    ChatChannel->OnMessage.AddDynamic(this, &AChatManager::OnChatMessage);
+    ChatChannel->OnPresenceChange.AddDynamic(this, &AChatManager::OnPresenceChange);
+    
+    ChatChannel->SubscribeAsync(Options);
+}
+
+void AChatManager::SendChatMessage(const FString& Message)
+{
+    if (ChatChannel && ChatChannel->IsSubscribed())
+    {
+        FString ChatJson = FString::Printf(
+            TEXT("{\"type\":\"chat\",\"message\":\"%s\",\"timestamp\":\"%s\"}"), 
+            *Message, *FDateTime::UtcNow().ToIso8601()
+        );
+        
+        ChatChannel->PublishAsync(ChatJson, FOddSocketsPublishOptions());
+    }
+}
+            </div>
+
+            <h3>Multiplayer Game State</h3>
+            <div class="code-example">
+// Game state synchronization
+void AGameStateSyncer::SyncPlayerPosition(const FVector& Position, const FRotator& Rotation)
+{
+    if (GameChannel && GameChannel->IsSubscribed())
+    {
+        FString PositionJson = FString::Printf(
+            TEXT("{\"type\":\"position\",\"x\":%.2f,\"y\":%.2f,\"z\":%.2f,\"pitch\":%.2f,\"yaw\":%.2f,\"roll\":%.2f}"),
+            Position.X, Position.Y, Position.Z, Rotation.Pitch, Rotation.Yaw, Rotation.Roll
+        );
+        
+        GameChannel->PublishAsync(PositionJson, FOddSocketsPublishOptions());
+    }
+}
+            </div>
+        </section>
+
+        <section id="configuration">
+            <h2>⚙️ Configuration</h2>
+
+            <h3>FOddSocketsConfig Structure</h3>
+            <div class="code-example">
+USTRUCT(BlueprintType)
+struct FOddSocketsConfig
+{
+    // Required Settings
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Required Settings")
+    FString ApiKey; // Your OddSockets API key
+
+    // Optional Settings
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Optional Settings")
+    FString UserId; // User identifier (auto-generated if empty)
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Optional Settings")
+    bool bAutoConnect = true; // Automatically connect on initialization
+
+    // Connection Settings
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Connection Settings")
+    int32 ReconnectAttempts = 5; // Maximum reconnection attempts
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Connection Settings")
+    int32 Timeout = 10; // Connection timeout in seconds
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Connection Settings")
+    int32 HeartbeatInterval = 30; // Heartbeat interval in seconds
+
+    // Logging
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Logging")
+    EOddSocketsLogLevel LogLevel = EOddSocketsLogLevel::Info;
+};
+            </div>
+        </section>
+
+        <section id="troubleshooting">
+            <h2>🔧 Troubleshooting</h2>
+
+            <h3>Common Issues</h3>
+            <ul>
+                <li><strong>Connection Fails</strong> - Verify API key and network connectivity</li>
+                <li><strong>Messages Not Received</strong> - Check subscription status and message size (32KB limit)</li>
+                <li><strong>Blueprint Compilation Errors</strong> - Ensure plugin is enabled and project files regenerated</li>
+            </ul>
+
+            <h3>Debug Logging</h3>
+            <p>Enable detailed logging by setting the log level to Debug in your configuration:</p>
+            <div class="code-example">
+Config.LogLevel = EOddSocketsLogLevel::Debug;
+            </div>
+        </section>
+
+        <section id="support">
+            <h2>🤝 Support & Resources</h2>
+            <ul>
+                <li><a href="https://docs.oddsockets.com" target="_blank">Official Documentation</a></li>
+                <li><a href="https://github.com/oddsockets/unreal-sdk/issues" target="_blank">GitHub Issues</a></li>
+                <li><a href="https://discord.gg/oddsockets" target="_blank">Discord Community</a></li>
+                <li><a href="mailto:support@oddsockets.com">Email Support</a></li>
+            </ul>
+        </section>
+    </div>
+
+    <footer style="text-align: center; padding: 2rem; margin-top: 3rem; border-top: 1px solid #e2e8f0; color: #718096;">
+        <p>&copy; 2024 OddSockets. Licensed under MIT License.</p>
+        <p>Built with ❤️ for the Unreal Engine community</p>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,268 @@
+/**
+ * OddSockets UE SDK - Client Implementation
+ */
+
+#include "OddSocketsClient.h"
+#include "ManagerDiscovery.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+#include "HttpModule.h"
+#include "Interfaces/IHttpRequest.h"
+#include "Interfaces/IHttpResponse.h"
+#include "WebSocketsModule.h"
+#include "IWebSocket.h"
+#include "TimerManager.h"
+
+AOddSocketsClient::AOddSocketsClient()
+{
+    PrimaryActorTick.bCanEverTick = true;
+    ConnectionState = EOddSocketsConnectionState::Disconnected;
+    ReconnectAttempts = 0;
+    ReconnectDelay = 1000;
+}
+
+void AOddSocketsClient::BeginPlay()
+{
+    Super::BeginPlay();
+    if (!Config.ApiKey.IsEmpty() && Config.bAutoConnect)
+    {
+        Initialize(Config);
+        ConnectAsync();
+    }
+}
+
+void AOddSocketsClient::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    CleanupResources();
+    Super::EndPlay(EndPlayReason);
+}
+
+void AOddSocketsClient::Tick(float DeltaTime)
+{
+    Super::Tick(DeltaTime);
+}
+
+void AOddSocketsClient::Initialize(const FOddSocketsConfig& InConfig)
+{
+    Config = InConfig;
+    ClientIdentifier = GenerateClientIdentifier();
+}
+
+void AOddSocketsClient::ConnectAsync()
+{
+    if (ConnectionState == EOddSocketsConnectionState::Connected ||
+        ConnectionState == EOddSocketsConnectionState::Connecting) return;
+
+    ConnectionState = EOddSocketsConnectionState::Connecting;
+    OnConnecting.Broadcast();
+    GetWorkerAssignment();
+}
+
+void AOddSocketsClient::Disconnect()
+{
+    CleanupResources();
+    ConnectionState = EOddSocketsConnectionState::Disconnected;
+    OnDisconnected.Broadcast(TEXT("Manual disconnect"));
+}
+
+UOddSocketsChannel* AOddSocketsClient::GetChannel(const FString& ChannelName)
+{
+    if (ChannelName.IsEmpty()) return nullptr;
+    if (UOddSocketsChannel** Found = Channels.Find(ChannelName)) return *Found;
+
+    UOddSocketsChannel* Ch = NewObject<UOddSocketsChannel>(this);
+    Ch->Initialize(ChannelName, this);
+    Channels.Add(ChannelName, Ch);
+    return Ch;
+}
+
+void AOddSocketsClient::PublishBulkAsync(const TArray<FOddSocketsBulkMessage>& Messages)
+{
+    for (const auto& Msg : Messages)
+    {
+        if (UOddSocketsChannel* Ch = GetChannel(Msg.Channel))
+        {
+            Ch->Publish(Msg.Message);
+        }
+    }
+}
+
+FOddSocketsWorkerInfo AOddSocketsClient::GetWorkerInfo() const
+{
+    FOddSocketsWorkerInfo Info;
+    Info.WorkerId = WorkerId;
+    Info.WorkerUrl = WorkerUrl;
+    return Info;
+}
+
+bool AOddSocketsClient::IsConnected() const
+{
+    return ConnectionState == EOddSocketsConnectionState::Connected;
+}
+
+void AOddSocketsClient::GetWorkerAssignment()
+{
+    FString ManagerUrl = UManagerDiscovery::GetManagerUrl();
+    FString UserId = Config.UserId.IsEmpty() ? ClientIdentifier : Config.UserId;
+    FString Url = FString::Printf(
+        TEXT("%s/api/cluster/select-worker?apiKey=%s&userId=%s&clientIdentifier=%s"),
+        *ManagerUrl, *Config.ApiKey, *UserId, *ClientIdentifier);
+
+    TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+    Request->SetURL(Url);
+    Request->SetVerb(TEXT("GET"));
+    Request->SetHeader(TEXT("User-Agent"), TEXT("OddSockets-UE-SDK/1.0.0"));
+    Request->OnProcessRequestComplete().BindUObject(this, &AOddSocketsClient::OnWorkerAssignmentResponse);
+    Request->ProcessRequest();
+}
+
+void AOddSocketsClient::OnWorkerAssignmentResponse(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful)
+{
+    if (!bWasSuccessful || !Response.IsValid() || Response->GetResponseCode() != 200)
+    {
+        OnError.Broadcast(TEXT("Worker assignment failed"));
+        if (ReconnectAttempts < Config.MaxReconnectAttempts)
+            ScheduleReconnect();
+        else
+        {
+            ConnectionState = EOddSocketsConnectionState::Error;
+            OnMaxReconnectAttemptsReached.Broadcast();
+        }
+        return;
+    }
+
+    TSharedPtr<FJsonObject> Json;
+    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Response->GetContentAsString());
+    if (!FJsonSerializer::Deserialize(Reader, Json) || !Json.IsValid())
+    {
+        OnError.Broadcast(TEXT("Invalid worker response JSON"));
+        ConnectionState = EOddSocketsConnectionState::Error;
+        return;
+    }
+
+    WorkerUrl = Json->GetStringField(TEXT("url"));
+    WorkerId = Json->GetStringField(TEXT("workerId"));
+
+    if (WorkerUrl.IsEmpty() || WorkerId.IsEmpty())
+    {
+        OnError.Broadcast(TEXT("Missing worker URL/ID"));
+        ConnectionState = EOddSocketsConnectionState::Error;
+        return;
+    }
+
+    FOddSocketsWorkerAssignmentInfo Info;
+    Info.WorkerId = WorkerId;
+    Info.WorkerUrl = WorkerUrl;
+    OnWorkerAssigned.Broadcast(Info);
+    ConnectToWorker();
+}
+
+void AOddSocketsClient::ConnectToWorker()
+{
+    if (WorkerUrl.IsEmpty()) return;
+
+    FString WsUrl = WorkerUrl.Replace(TEXT("https://"), TEXT("wss://"))
+                              .Replace(TEXT("http://"), TEXT("ws://"));
+    WsUrl += TEXT("/socket.io/?EIO=4&transport=websocket");
+
+    if (!FModuleManager::Get().IsModuleLoaded(TEXT("WebSockets")))
+        FModuleManager::Get().LoadModule(TEXT("WebSockets"));
+
+    TMap<FString, FString> Headers;
+    Headers.Add(TEXT("Authorization"), FString::Printf(TEXT("Bearer %s"), *Config.ApiKey));
+
+    WebSocket = FWebSocketsModule::Get().CreateWebSocket(WsUrl, TEXT("wss"), Headers);
+    SetupWebSocketEventHandlers();
+    WebSocket->Connect();
+}
+
+void AOddSocketsClient::SetupWebSocketEventHandlers()
+{
+    if (!WebSocket.IsValid()) return;
+    WebSocket->OnConnected().AddUObject(this, &AOddSocketsClient::OnWebSocketConnected);
+    WebSocket->OnConnectionError().AddUObject(this, &AOddSocketsClient::OnWebSocketConnectionError);
+    WebSocket->OnClosed().AddUObject(this, &AOddSocketsClient::OnWebSocketClosed);
+    WebSocket->OnMessage().AddUObject(this, &AOddSocketsClient::OnWebSocketMessage);
+}
+
+void AOddSocketsClient::OnWebSocketConnected()
+{
+    ConnectionState = EOddSocketsConnectionState::Connected;
+    ReconnectAttempts = 0;
+    OnConnected.Broadcast();
+}
+
+void AOddSocketsClient::OnWebSocketConnectionError(const FString& Error)
+{
+    ConnectionState = EOddSocketsConnectionState::Error;
+    OnError.Broadcast(Error);
+    if (ReconnectAttempts < Config.MaxReconnectAttempts)
+        ScheduleReconnect();
+    else
+        OnMaxReconnectAttemptsReached.Broadcast();
+}
+
+void AOddSocketsClient::OnWebSocketClosed(int32 StatusCode, const FString& Reason, bool bWasClean)
+{
+    ConnectionState = EOddSocketsConnectionState::Disconnected;
+    OnDisconnected.Broadcast(FString::Printf(TEXT("Code:%d %s"), StatusCode, *Reason));
+    if (ReconnectAttempts < Config.MaxReconnectAttempts)
+        ScheduleReconnect();
+}
+
+void AOddSocketsClient::OnWebSocketMessage(const FString& Message)
+{
+    HandleChannelMessage(Message);
+}
+
+void AOddSocketsClient::HandleChannelMessage(const FString& Message)
+{
+    TSharedPtr<FJsonObject> Json;
+    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Message);
+    if (!FJsonSerializer::Deserialize(Reader, Json) || !Json.IsValid()) return;
+
+    FString ChannelName = Json->GetStringField(TEXT("channel"));
+    if (UOddSocketsChannel** Found = Channels.Find(ChannelName))
+        (*Found)->HandleMessage(Json);
+}
+
+void AOddSocketsClient::ScheduleReconnect()
+{
+    ReconnectAttempts++;
+    ConnectionState = EOddSocketsConnectionState::Reconnecting;
+    int32 Delay = FMath::Min(ReconnectDelay * (1 << (ReconnectAttempts - 1)), 30000);
+
+    FOddSocketsReconnectInfo Info;
+    Info.Attempt = ReconnectAttempts;
+    Info.MaxAttempts = Config.MaxReconnectAttempts;
+    Info.DelayMs = Delay;
+    OnReconnecting.Broadcast(Info);
+
+    GetWorld()->GetTimerManager().SetTimer(
+        ReconnectTimerHandle, this, &AOddSocketsClient::ConnectAsync,
+        static_cast<float>(Delay) / 1000.0f, false);
+}
+
+FString AOddSocketsClient::GenerateClientIdentifier()
+{
+    return FString::Printf(TEXT("%s_%s"), *HashString(Config.ApiKey),
+        Config.UserId.IsEmpty() ? TEXT("default") : *Config.UserId);
+}
+
+FString AOddSocketsClient::HashString(const FString& Input)
+{
+    uint32 Hash = 0;
+    for (int32 i = 0; i < Input.Len(); i++)
+        Hash = ((Hash << 5) - Hash) + static_cast<uint32>(Input[i]);
+    return FString::Printf(TEXT("%08x"), Hash);
+}
+
+void AOddSocketsClient::CleanupResources()
+{
+    if (GetWorld())
+        GetWorld()->GetTimerManager().ClearTimer(ReconnectTimerHandle);
+    if (WebSocket.IsValid()) { WebSocket->Close(); WebSocket.Reset(); }
+    WorkerUrl.Empty();
+    WorkerId.Empty();
+}
