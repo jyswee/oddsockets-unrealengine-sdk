@@ -4,7 +4,7 @@
 
 #include "ManagerDiscovery.h"
 
-const FString UManagerDiscovery::DefaultManagerUrl = TEXT("https://manager1.oddsockets.tyga.network");
+const FString UManagerDiscovery::DefaultManagerUrl = TEXT("https://connect.oddsockets.tyga.network");
 
 FString UManagerDiscovery::GetManagerUrl()
 {
