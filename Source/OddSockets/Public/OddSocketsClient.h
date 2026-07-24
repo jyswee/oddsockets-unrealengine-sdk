@@ -25,6 +25,10 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnError, const FString&, ErrorMessa
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnWorkerAssigned, const FOddSocketsWorkerAssignmentInfo&, WorkerInfo);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnReconnecting, const FOddSocketsReconnectInfo&, ReconnectInfo);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnMaxReconnectAttemptsReached);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnEnhancedEvent, const FString&, EventName, const FString&, JsonPayload);
+
+/** Native (C++) handler signature for a raw named server event. */
+using FOddSocketsEventHandler = TFunction<void(const FString& /*JsonPayload*/)>;
 
 /**
  * OddSockets Unreal Engine SDK
@@ -73,6 +77,11 @@ public:
     UPROPERTY(BlueprintAssignable, Category = "OddSockets Events")
     FOnMaxReconnectAttemptsReached OnMaxReconnectAttemptsReached;
 
+    // Fires for every enhanced (Slack-like) broadcast the worker delivers,
+    // e.g. "user_typing", "reaction_added". Payload is the raw JSON string.
+    UPROPERTY(BlueprintAssignable, Category = "OddSockets Enhanced Events")
+    FOnEnhancedEvent OnEnhancedEvent;
+
     // Public Methods
     UFUNCTION(BlueprintCallable, Category = "OddSockets")
     void Initialize(const FOddSocketsConfig& InConfig);
@@ -104,6 +113,11 @@ public:
     UFUNCTION(BlueprintPure, Category = "OddSockets")
     bool IsConnected() const;
 
+    // Register a native (C++) handler for a raw named server event (e.g. an
+    // enhanced broadcast such as "reaction_added"). Blueprint code should bind
+    // OnEnhancedEvent instead. Not a UFUNCTION: TFunction is C++-only.
+    void On(const FString& EventName, FOddSocketsEventHandler Handler);
+
     // Internal methods for channels
     TSharedPtr<IWebSocket> GetWebSocket() const { return WebSocket; }
 
@@ -134,6 +148,12 @@ private:
     void OnWebSocketMessage(const FString& Message);
     FString GenerateClientIdentifier();
     FString HashString(const FString& Input);
-    void HandleChannelMessage(const FString& Message);
+    // Decode a single Engine.IO/Socket.IO frame and route its payload.
+    void HandleSocketFrame(const FString& Frame);
+    // Dispatch a decoded ["event", data] pair to channels or enhanced handlers.
+    void RouteEvent(const FString& EventName, const TSharedPtr<class FJsonObject>& Data, const FString& RawPayload);
     void CleanupResources();
+
+    // Native handlers registered via On(), keyed by event name.
+    TMap<FString, TArray<FOddSocketsEventHandler>> NativeEventHandlers;
 };

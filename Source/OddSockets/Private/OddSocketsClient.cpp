@@ -83,7 +83,7 @@ void AOddSocketsClient::PublishBulkAsync(const TArray<FOddSocketsBulkMessage>& M
     {
         if (UOddSocketsChannel* Ch = GetChannel(Msg.Channel))
         {
-            Ch->Publish(Msg.Message);
+            Ch->PublishAsync(Msg.Message, Msg.Options);
         }
     }
 }
@@ -213,18 +213,102 @@ void AOddSocketsClient::OnWebSocketClosed(int32 StatusCode, const FString& Reaso
 
 void AOddSocketsClient::OnWebSocketMessage(const FString& Message)
 {
-    HandleChannelMessage(Message);
+    HandleSocketFrame(Message);
 }
 
-void AOddSocketsClient::HandleChannelMessage(const FString& Message)
+void AOddSocketsClient::HandleSocketFrame(const FString& Frame)
 {
-    TSharedPtr<FJsonObject> Json;
-    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Message);
-    if (!FJsonSerializer::Deserialize(Reader, Json) || !Json.IsValid()) return;
+    if (Frame.IsEmpty()) return;
 
-    FString ChannelName = Json->GetStringField(TEXT("channel"));
-    if (UOddSocketsChannel** Found = Channels.Find(ChannelName))
-        (*Found)->HandleMessage(Json);
+    // Engine.IO ping ("2") -> reply pong ("3") so the worker keeps us alive.
+    if (Frame == TEXT("2"))
+    {
+        if (WebSocket.IsValid() && WebSocket->IsConnected())
+            WebSocket->Send(TEXT("3"));
+        return;
+    }
+
+    // Only Socket.IO EVENT frames (Engine.IO msg "4" + Socket.IO event "2")
+    // carry application payloads: 42["event",{...}]. Ignore handshake/ack frames.
+    if (!Frame.StartsWith(TEXT("42"))) return;
+
+    // Skip the "42" prefix plus any numeric ack id before the payload array.
+    int32 BracketIndex = INDEX_NONE;
+    if (!Frame.FindChar(TEXT('['), BracketIndex) || BracketIndex == INDEX_NONE) return;
+
+    const FString ArrayJson = Frame.Mid(BracketIndex);
+    TArray<TSharedPtr<FJsonValue>> Parsed;
+    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ArrayJson);
+    if (!FJsonSerializer::Deserialize(Reader, Parsed) || Parsed.Num() == 0) return;
+
+    const FString EventName = Parsed[0]->AsString();
+
+    TSharedPtr<FJsonObject> DataObj;
+    FString RawPayload;
+    if (Parsed.Num() > 1 && Parsed[1].IsValid())
+    {
+        DataObj = Parsed[1]->AsObject();
+        if (DataObj.IsValid())
+        {
+            TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&RawPayload);
+            FJsonSerializer::Serialize(DataObj.ToSharedRef(), Writer);
+        }
+    }
+
+    RouteEvent(EventName, DataObj, RawPayload);
+}
+
+void AOddSocketsClient::RouteEvent(const FString& EventName, const TSharedPtr<FJsonObject>& Data, const FString& RawPayload)
+{
+    // Core channel events are dispatched to the owning UOddSocketsChannel.
+    if (Data.IsValid())
+    {
+        FString ChannelName;
+        Data->TryGetStringField(TEXT("channel"), ChannelName);
+        UOddSocketsChannel** Found = ChannelName.IsEmpty() ? nullptr : Channels.Find(ChannelName);
+
+        if (EventName == TEXT("message") && Found)
+        {
+            FOddSocketsChannelMessageData Msg;
+            Msg.Channel = ChannelName;
+            Data->TryGetStringField(TEXT("message"), Msg.Message);
+            Data->TryGetStringField(TEXT("sender"), Msg.Sender);
+            (*Found)->HandleMessage(Msg);
+            return;
+        }
+        if (EventName == TEXT("subscribed") && Found)
+        {
+            FOddSocketsChannelSubscriptionData Sub;
+            Sub.Channel = ChannelName;
+            Sub.bSuccess = true;
+            (*Found)->HandleSubscribed(Sub);
+            return;
+        }
+        if (EventName == TEXT("unsubscribed") && Found)
+        {
+            FOddSocketsChannelSubscriptionData Sub;
+            Sub.Channel = ChannelName;
+            Sub.bSuccess = true;
+            (*Found)->HandleUnsubscribed(Sub);
+            return;
+        }
+    }
+
+    // Everything else is an enhanced (Slack-like) broadcast: deliver generically
+    // to Blueprint listeners and any native handlers registered via On().
+    OnEnhancedEvent.Broadcast(EventName, RawPayload);
+    if (TArray<FOddSocketsEventHandler>* Handlers = NativeEventHandlers.Find(EventName))
+    {
+        for (const FOddSocketsEventHandler& Handler : *Handlers)
+        {
+            if (Handler) Handler(RawPayload);
+        }
+    }
+}
+
+void AOddSocketsClient::On(const FString& EventName, FOddSocketsEventHandler Handler)
+{
+    NativeEventHandlers.FindOrAdd(EventName).Add(MoveTemp(Handler));
 }
 
 void AOddSocketsClient::ScheduleReconnect()

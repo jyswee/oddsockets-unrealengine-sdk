@@ -506,7 +506,7 @@ struct ODDSOCKETS_API FOddSocketsHistoryOptions
 };
 
 /**
- * Message size limits (industry standard - matches PubNub)
+ * Message size limits (32KB - industry standard)
  */
 USTRUCT(BlueprintType)
 struct ODDSOCKETS_API FOddSocketsMessageSizeLimits

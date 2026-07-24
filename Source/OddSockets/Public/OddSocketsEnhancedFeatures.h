@@ -1,151 +1,72 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
-
 #pragma once
 
 #include "CoreMinimal.h"
-#include "OddSocketsClient.h"
-#include "Async/Async.h"
-#include "Async/TaskGraphInterfaces.h"
+#include "UObject/NoExportTypes.h"
+#include "Dom/JsonObject.h"
+#include "OddSocketsEnhancedFeatures.generated.h"
+
+class AOddSocketsClient;
 
 /**
- * Enhanced Features for OddSockets Unreal Engine SDK
- * Provides 67 new Slack-like events with Unreal Engine async patterns and delegates
+ * Enhanced (Slack-like) real-time features for the OddSockets Unreal Engine SDK.
+ *
+ * These are send-path helpers: each method emits an enhanced event over the
+ * client's existing Socket.IO connection. The paired broadcast arrives back on
+ * AOddSocketsClient::OnEnhancedEvent (Blueprint) or a native handler registered
+ * via AOddSocketsClient::On (C++), keyed by the broadcast event name.
+ *
+ * Scope: typing indicators and message reactions. These are the enhanced events
+ * with a verified send path in this SDK. Additional Slack-like surfaces (threads,
+ * read receipts, presence, search, etc.) will be added here as each is
+ * implemented and tested end-to-end, rather than declared ahead of support.
  */
-class ODDSOCKETS_API FOddSocketsEnhancedFeatures
+UCLASS(BlueprintType)
+class ODDSOCKETS_API UOddSocketsEnhancedFeatures : public UObject
 {
+    GENERATED_BODY()
+
 public:
-    FOddSocketsEnhancedFeatures(TSharedPtr<FOddSocketsClient> InClient);
-    ~FOddSocketsEnhancedFeatures();
+    /** Bind this helper to a connected client before calling any method. */
+    void Initialize(AOddSocketsClient* InClient);
 
-    // ==================== THREAD EVENTS ====================
+    // ==================== TYPING INDICATORS ====================
 
-    void ThreadReply(const FString& Channel, const FString& ParentMessageId, const FString& Message, 
-                    const FString& UserId, const FString& UserName, 
-                    TFunction<void(const FString&)> OnSuccess, TFunction<void(const FString&)> OnError);
-
-    void GetThread(const FString& ThreadId, 
-                  TFunction<void(const FString&)> OnSuccess, TFunction<void(const FString&)> OnError);
-
-    void SubscribeThread(const FString& ThreadId, const FString& UserId, 
-                        TFunction<void(const FString&)> OnSuccess, TFunction<void(const FString&)> OnError);
-
-    void MarkThreadRead(const FString& ThreadId, const FString& UserId);
-    void FollowThread(const FString& ThreadId, const FString& UserId);
-    void UnfollowThread(const FString& ThreadId, const FString& UserId);
-
-    // ==================== REACTION EVENTS ====================
-
-    void AddReaction(const FString& MessageId, const FString& Channel, const FString& Emoji, 
-                    const FString& UserId, const FString& UserName);
-
-    void RemoveReaction(const FString& MessageId, const FString& Channel, const FString& Emoji, 
-                       const FString& UserId);
-
-    void GetReactions(const FString& MessageId, 
-                     TFunction<void(const FString&)> OnSuccess, TFunction<void(const FString&)> OnError);
-
-    // ==================== READ RECEIPT EVENTS ====================
-
-    void MarkRead(const FString& MessageId, const FString& Channel, const FString& UserId, 
-                 const FString& UserName);
-
-    void GetUnreadCounts(const FString& UserId, const TArray<FString>& Channels, 
-                        TFunction<void(const FString&)> OnSuccess, TFunction<void(const FString&)> OnError);
-
-    void MarkAllRead(const FString& Channel, const FString& UserId);
-
-    // ==================== CHANNEL EVENTS ====================
-
-    void CreateChannel(const FString& Name, const FString& Type, const FString& Description, 
-                      const FString& Topic, const FString& CreatedBy, const FString& CreatedByName, 
-                      TFunction<void(const FString&)> OnSuccess, TFunction<void(const FString&)> OnError);
-
-    void UpdateChannel(const FString& ChannelId, const TMap<FString, FString>& Updates, 
-                      const FString& UserId);
-
-    void ArchiveChannel(const FString& ChannelId, const FString& UserId);
-
-    void InviteToChannel(const FString& ChannelId, const FString& InvitedUserId, 
-                        const FString& InvitedUserName, const FString& InvitedBy);
-
-    void RemoveFromChannel(const FString& ChannelId, const FString& RemovedUserId, 
-                          const FString& RemovedBy);
-
-    void JoinChannel(const FString& ChannelId, const FString& UserId, const FString& UserName);
-    void LeaveChannel(const FString& ChannelId, const FString& UserId);
-
-    void GetChannelMembers(const FString& ChannelId, 
-                          TFunction<void(const FString&)> OnSuccess, TFunction<void(const FString&)> OnError);
-
-    // ==================== DIRECT MESSAGE EVENTS ====================
-
-    void CreateDM(const TArray<FString>& UserIds, const FString& Type, 
-                 TFunction<void(const FString&)> OnSuccess, TFunction<void(const FString&)> OnError);
-
-    void SendDM(const FString& ConversationId, const FString& Message, const FString& UserId, 
-               const FString& UserName);
-
-    void GetDMConversations(const FString& UserId, bool bIncludeArchived, 
-                           TFunction<void(const FString&)> OnSuccess, TFunction<void(const FString&)> OnError);
-
-    // ==================== NOTIFICATION EVENTS ====================
-
-    void SubscribeNotifications(const FString& UserId);
-    void MarkNotificationRead(const FString& NotificationId, const FString& UserId);
-    void MarkAllNotificationsRead(const FString& UserId);
-    void ClearNotifications(const FString& UserId);
-
-    void GetNotifications(const FString& UserId, int32 Limit, const FString& Status, 
-                         TFunction<void(const FString&)> OnSuccess, TFunction<void(const FString&)> OnError);
-
-    // ==================== PRESENCE EVENTS ====================
-
-    void SetStatus(const FString& UserId, const FString& Status);
-    void SetCustomStatus(const FString& UserId, const FString& Emoji, const FString& Text, 
-                        const FString& ExpiresAt = TEXT(""));
-    void ClearCustomStatus(const FString& UserId);
-    void SetDND(const FString& UserId, const FString& Until = TEXT(""));
-    void ClearDND(const FString& UserId);
+    /**
+     * Notify a channel that the user has started typing.
+     * Wire event: start_typing. Paired broadcast: "user_typing".
+     */
+    UFUNCTION(BlueprintCallable, Category = "OddSockets|Enhanced|Typing")
     void StartTyping(const FString& UserId, const FString& Channel);
+
+    /**
+     * Notify a channel that the user has stopped typing.
+     * Wire event: stop_typing. Paired broadcast: "user_stopped_typing".
+     */
+    UFUNCTION(BlueprintCallable, Category = "OddSockets|Enhanced|Typing")
     void StopTyping(const FString& UserId, const FString& Channel);
 
-    void GetUserPresence(const TArray<FString>& UserIds, 
-                        TFunction<void(const FString&)> OnSuccess, TFunction<void(const FString&)> OnError);
+    // ==================== REACTIONS ====================
 
-    // ==================== MESSAGE EDITING EVENTS ====================
+    /**
+     * Add an emoji reaction to a message.
+     * Wire event: add_reaction. Paired broadcast: "reaction_added".
+     */
+    UFUNCTION(BlueprintCallable, Category = "OddSockets|Enhanced|Reactions")
+    void AddReaction(const FString& MessageId, const FString& Channel, const FString& Emoji,
+                     const FString& UserId, const FString& UserName);
 
-    void EditMessage(const FString& MessageId, const FString& Channel, const FString& NewContent, 
-                    const FString& UserId);
-
-    void DeleteMessage(const FString& MessageId, const FString& Channel, const FString& UserId);
-    void PinMessage(const FString& MessageId, const FString& Channel, const FString& UserId);
-    void UnpinMessage(const FString& MessageId, const FString& Channel, const FString& UserId);
-
-    void GetPinnedMessages(const FString& Channel, 
-                          TFunction<void(const FString&)> OnSuccess, TFunction<void(const FString&)> OnError);
-
-    // ==================== SEARCH EVENTS ====================
-
-    void SearchMessages(const FString& Query, const FString& UserId, int32 Limit, 
-                       TFunction<void(const FString&)> OnSuccess, TFunction<void(const FString&)> OnError);
-
-    void FilterMessages(const TMap<FString, FString>& Filters, 
-                       TFunction<void(const FString&)> OnSuccess, TFunction<void(const FString&)> OnError);
-
-    void SearchInChannel(const FString& Channel, const FString& Query, int32 Limit, 
-                        TFunction<void(const FString&)> OnSuccess, TFunction<void(const FString&)> OnError);
-
-    void SearchByUser(const FString& UserId, const FString& Query, int32 Limit, 
-                     TFunction<void(const FString&)> OnSuccess, TFunction<void(const FString&)> OnError);
+    /**
+     * Remove an emoji reaction from a message.
+     * Wire event: remove_reaction. Paired broadcast: "reaction_removed".
+     */
+    UFUNCTION(BlueprintCallable, Category = "OddSockets|Enhanced|Reactions")
+    void RemoveReaction(const FString& MessageId, const FString& Channel, const FString& Emoji,
+                        const FString& UserId);
 
 private:
-    TSharedPtr<FOddSocketsClient> Client;
-    float Timeout;
+    /** Serialize Payload and emit it as a Socket.IO event over the client socket. */
+    void Emit(const FString& EventName, const TSharedRef<FJsonObject>& Payload);
 
-    void EmitWithResponse(const FString& EventName, const TSharedPtr<FJsonObject>& Data, 
-                         const FString& ResponseEvent, 
-                         TFunction<void(const FString&)> OnSuccess, 
-                         TFunction<void(const FString&)> OnError);
-
-    TSharedPtr<FJsonObject> CreateJsonObject();
+    UPROPERTY()
+    AOddSocketsClient* Client = nullptr;
 };

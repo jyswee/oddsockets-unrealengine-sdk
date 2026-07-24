@@ -83,8 +83,8 @@ struct ODDSOCKETS_API FOddSocketsBulkValidationResult
  * Message Size Validator
  * 
  * Provides validation for message sizes according to OddSockets limits.
- * Implements industry standard 32KB message size limit matching PubNub
- * and other real-time messaging platforms.
+ * Implements the industry-standard 32KB message size limit used across
+ * real-time messaging platforms.
  */
 UCLASS(BlueprintType, Blueprintable)
 class ODDSOCKETS_API UMessageSizeValidator : public UObject
