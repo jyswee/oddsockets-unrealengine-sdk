@@ -4,7 +4,9 @@ Official Unreal Engine plugin for OddSockets real-time messaging platform. Bluep
 
 ## Install
 
-Copy the `Source/OddSockets/` folder into your UE project's Plugins directory.
+Copy this plugin folder (containing `OddSockets.uplugin` and the `Source/` directory)
+into your UE project's `Plugins/OddSockets/` directory, then regenerate your project
+files and enable the **OddSockets** plugin in the editor (Edit → Plugins → Networking).
 
 ## Quick Start
 
