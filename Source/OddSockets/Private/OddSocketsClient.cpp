@@ -103,7 +103,18 @@ bool AOddSocketsClient::IsConnected() const
 
 void AOddSocketsClient::GetWorkerAssignment()
 {
-    FString ManagerUrl = UManagerDiscovery::GetManagerUrl();
+    // The configured manager is honoured verbatim. A malformed value fails here
+    // instead of silently retargeting the default manager, which would make a
+    // misconfigured client look healthy.
+    FString DiscoveryError;
+    FString ManagerUrl = UManagerDiscovery::GetManagerUrl(Config.ManagerUrl, DiscoveryError);
+    if (!DiscoveryError.IsEmpty())
+    {
+        ConnectionState = EOddSocketsConnectionState::Error;
+        OnError.Broadcast(DiscoveryError);
+        return;
+    }
+
     FString UserId = Config.UserId.IsEmpty() ? ClientIdentifier : Config.UserId;
     FString Url = FString::Printf(
         TEXT("%s/api/cluster/select-worker?apiKey=%s&userId=%s&clientIdentifier=%s"),
@@ -122,7 +133,7 @@ void AOddSocketsClient::OnWorkerAssignmentResponse(FHttpRequestPtr Request, FHtt
     if (!bWasSuccessful || !Response.IsValid() || Response->GetResponseCode() != 200)
     {
         OnError.Broadcast(TEXT("Worker assignment failed"));
-        if (ReconnectAttempts < Config.MaxReconnectAttempts)
+        if (ReconnectAttempts < Config.ReconnectAttempts)
             ScheduleReconnect();
         else
         {
@@ -197,7 +208,7 @@ void AOddSocketsClient::OnWebSocketConnectionError(const FString& Error)
 {
     ConnectionState = EOddSocketsConnectionState::Error;
     OnError.Broadcast(Error);
-    if (ReconnectAttempts < Config.MaxReconnectAttempts)
+    if (ReconnectAttempts < Config.ReconnectAttempts)
         ScheduleReconnect();
     else
         OnMaxReconnectAttemptsReached.Broadcast();
@@ -207,7 +218,7 @@ void AOddSocketsClient::OnWebSocketClosed(int32 StatusCode, const FString& Reaso
 {
     ConnectionState = EOddSocketsConnectionState::Disconnected;
     OnDisconnected.Broadcast(FString::Printf(TEXT("Code:%d %s"), StatusCode, *Reason));
-    if (ReconnectAttempts < Config.MaxReconnectAttempts)
+    if (ReconnectAttempts < Config.ReconnectAttempts)
         ScheduleReconnect();
 }
 
@@ -319,7 +330,7 @@ void AOddSocketsClient::ScheduleReconnect()
 
     FOddSocketsReconnectInfo Info;
     Info.Attempt = ReconnectAttempts;
-    Info.MaxAttempts = Config.MaxReconnectAttempts;
+    Info.MaxAttempts = Config.ReconnectAttempts;
     Info.DelayMs = Delay;
     OnReconnecting.Broadcast(Info);
 

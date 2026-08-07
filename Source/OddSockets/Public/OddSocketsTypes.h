@@ -46,6 +46,14 @@ struct ODDSOCKETS_API FOddSocketsConfig
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Optional Settings")
     FString UserId;
 
+    /**
+     * Manager endpoint that assigns a worker. Leave empty to use the default.
+     * When set it is used verbatim: if it is unreachable the connection fails
+     * rather than silently falling back to the default manager.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Optional Settings")
+    FString ManagerUrl;
+
     /** Automatically connect on initialization */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Optional Settings")
     bool bAutoConnect = true;
