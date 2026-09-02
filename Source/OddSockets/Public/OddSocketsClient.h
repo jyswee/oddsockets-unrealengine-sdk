@@ -79,6 +79,13 @@ public:
 
     // Fires for every enhanced (Slack-like) broadcast the worker delivers,
     // e.g. "user_typing", "reaction_added". Payload is the raw JSON string.
+    //
+    // The challenge / leaderboard / achievement surface also arrives here, keyed
+    // by these inbound event names:
+    //   "challenge_progress", "leaderboard_rank_change", "challenge_complete",
+    //   "achievement_unlock", "achievement_progress", "challenge_invited",
+    //   "challenge_reply_received", "challenge_invite_cancelled"
+    // (plus the *_success / error acks documented on UOddSocketsEnhancedFeatures).
     UPROPERTY(BlueprintAssignable, Category = "OddSockets Enhanced Events")
     FOnEnhancedEvent OnEnhancedEvent;
 

@@ -306,7 +306,12 @@ void AOddSocketsClient::RouteEvent(const FString& EventName, const TSharedPtr<FJ
     }
 
     // Everything else is an enhanced (Slack-like) broadcast: deliver generically
-    // to Blueprint listeners and any native handlers registered via On().
+    // to Blueprint listeners and any native handlers registered via On(). This
+    // includes reaction/typing events (e.g. "reaction_added") and the challenge /
+    // leaderboard / achievement inbound events: "challenge_progress",
+    // "leaderboard_rank_change", "challenge_complete", "achievement_unlock",
+    // "achievement_progress", "challenge_invited", "challenge_reply_received" and
+    // "challenge_invite_cancelled".
     OnEnhancedEvent.Broadcast(EventName, RawPayload);
     if (TArray<FOddSocketsEventHandler>* Handlers = NativeEventHandlers.Find(EventName))
     {
