@@ -88,6 +88,109 @@ void AOddSocketsClient::PublishBulkAsync(const TArray<FOddSocketsBulkMessage>& M
     }
 }
 
+void AOddSocketsClient::GetUsageStats()
+{
+    // Requires an API key. A client with no key has no owner scope to attribute
+    // metrics to, so fail fast (mirrors the JS SDK's token-client guard) rather
+    // than sending an unauthenticated request the manager would reject anyway.
+    if (Config.ApiKey.IsEmpty())
+    {
+        FOddSocketsUsageStats Stats;
+        Stats.bSuccess = false;
+        Stats.Error = TEXT("getUsageStats requires an apiKey (keyless/token clients have no owner scope to query)");
+        OnUsageStats.Broadcast(Stats);
+        return;
+    }
+
+    // Same manager-discovery helper the worker-selection call uses.
+    FString DiscoveryError;
+    FString ManagerUrl = UManagerDiscovery::GetManagerUrl(Config.ManagerUrl, DiscoveryError);
+    if (!DiscoveryError.IsEmpty())
+    {
+        FOddSocketsUsageStats Stats;
+        Stats.bSuccess = false;
+        Stats.Error = DiscoveryError;
+        OnUsageStats.Broadcast(Stats);
+        return;
+    }
+
+    FString Url = FString::Printf(TEXT("%s/api/tenant/usage"), *ManagerUrl);
+
+    TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+    Request->SetURL(Url);
+    Request->SetVerb(TEXT("GET"));
+    Request->SetHeader(TEXT("X-API-Key"), Config.ApiKey);
+    Request->SetHeader(TEXT("User-Agent"), TEXT("OddSockets-UE-SDK/1.0.0"));
+    Request->OnProcessRequestComplete().BindUObject(this, &AOddSocketsClient::OnUsageStatsResponse);
+    Request->ProcessRequest();
+}
+
+void AOddSocketsClient::OnUsageStatsResponse(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful)
+{
+    FOddSocketsUsageStats Stats;
+
+    if (!bWasSuccessful || !Response.IsValid() || Response->GetResponseCode() != 200)
+    {
+        Stats.bSuccess = false;
+        Stats.Error = Response.IsValid()
+            ? FString::Printf(TEXT("Usage stats request failed: HTTP %d"), Response->GetResponseCode())
+            : TEXT("Usage stats request failed: no response");
+        OnUsageStats.Broadcast(Stats);
+        return;
+    }
+
+    TSharedPtr<FJsonObject> Json;
+    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Response->GetContentAsString());
+    if (!FJsonSerializer::Deserialize(Reader, Json) || !Json.IsValid())
+    {
+        Stats.bSuccess = false;
+        Stats.Error = TEXT("Invalid usage stats response JSON");
+        OnUsageStats.Broadcast(Stats);
+        return;
+    }
+
+    // Shape: { ownerScope, tiles: { mau, dau, totalMessages, errorRate }, detail, timestamp }.
+    // A tile absent (or JSON null) stays absent — bHas... = false — never coerced
+    // to 0, so a not-yet-live metric can never masquerade as real zero activity.
+    const TSharedPtr<FJsonObject>* TilesPtr = nullptr;
+    if (Json->TryGetObjectField(TEXT("tiles"), TilesPtr) && TilesPtr && TilesPtr->IsValid())
+    {
+        const TSharedPtr<FJsonObject>& Tiles = *TilesPtr;
+
+        // TryGetNumberField returns false for both an absent key AND a JSON null,
+        // so a null tile leaves bHas... = false — exactly the "preserve null,
+        // never coerce to 0" contract.
+        double NumValue = 0.0;
+        if (Tiles->TryGetNumberField(TEXT("mau"), NumValue))
+        {
+            Stats.Mau = static_cast<int64>(NumValue);
+            Stats.bHasMau = true;
+        }
+        if (Tiles->TryGetNumberField(TEXT("dau"), NumValue))
+        {
+            Stats.Dau = static_cast<int64>(NumValue);
+            Stats.bHasDau = true;
+        }
+        if (Tiles->TryGetNumberField(TEXT("totalMessages"), NumValue))
+        {
+            Stats.TotalMessages = static_cast<int64>(NumValue);
+            Stats.bHasTotalMessages = true;
+        }
+        if (Tiles->TryGetNumberField(TEXT("errorRate"), NumValue))
+        {
+            Stats.ErrorRate = static_cast<float>(NumValue);
+            Stats.bHasErrorRate = true;
+        }
+    }
+
+    Json->TryGetStringField(TEXT("ownerScope"), Stats.OwnerScope);
+    Json->TryGetStringField(TEXT("detail"), Stats.Detail);
+    Json->TryGetStringField(TEXT("timestamp"), Stats.Timestamp);
+
+    Stats.bSuccess = true;
+    OnUsageStats.Broadcast(Stats);
+}
+
 FOddSocketsWorkerInfo AOddSocketsClient::GetWorkerInfo() const
 {
     FOddSocketsWorkerInfo Info;

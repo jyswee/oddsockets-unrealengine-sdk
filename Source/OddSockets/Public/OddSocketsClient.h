@@ -27,6 +27,11 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnReconnecting, const FOddSocketsRe
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnMaxReconnectAttemptsReached);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnEnhancedEvent, const FString&, EventName, const FString&, JsonPayload);
 
+// Fired when a GetUsageStats request completes (success or failure — inspect
+// Stats.bSuccess / Stats.Error). The manager fetch is async, mirroring worker
+// selection, so the result is delivered by delegate rather than a return value.
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnUsageStats, const FOddSocketsUsageStats&, Stats);
+
 /** Native (C++) handler signature for a raw named server event. */
 using FOddSocketsEventHandler = TFunction<void(const FString& /*JsonPayload*/)>;
 
@@ -89,6 +94,10 @@ public:
     UPROPERTY(BlueprintAssignable, Category = "OddSockets Enhanced Events")
     FOnEnhancedEvent OnEnhancedEvent;
 
+    // Fires with the result of GetUsageStats (headline tenant analytics).
+    UPROPERTY(BlueprintAssignable, Category = "OddSockets Events")
+    FOnUsageStats OnUsageStats;
+
     // Public Methods
     UFUNCTION(BlueprintCallable, Category = "OddSockets")
     void Initialize(const FOddSocketsConfig& InConfig);
@@ -104,6 +113,14 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "OddSockets")
     void PublishBulkAsync(const TArray<FOddSocketsBulkMessage>& Messages);
+
+    // Fetch this tenant's headline usage analytics (MAU / DAU / total messages /
+    // error rate) from the manager. Requires an API key: a client with an empty
+    // ApiKey has no owner scope to query and fires OnUsageStats with an error.
+    // The result arrives on OnUsageStats — tiles that are not live yet come back
+    // absent (bHas... = false), never a fabricated 0.
+    UFUNCTION(BlueprintCallable, Category = "OddSockets")
+    void GetUsageStats();
 
     UFUNCTION(BlueprintPure, Category = "OddSockets")
     EOddSocketsConnectionState GetConnectionState() const { return ConnectionState; }
@@ -146,6 +163,7 @@ private:
     // Private methods
     void GetWorkerAssignment();
     void OnWorkerAssignmentResponse(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);
+    void OnUsageStatsResponse(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);
     void ConnectToWorker();
     void SetupWebSocketEventHandlers();
     void ScheduleReconnect();

@@ -514,6 +514,86 @@ struct ODDSOCKETS_API FOddSocketsHistoryOptions
 };
 
 /**
+ * Headline usage analytics for the calling tenant, returned by
+ * AOddSocketsClient::GetUsageStats.
+ *
+ * Each tile (Mau / Dau / TotalMessages / ErrorRate) is accompanied by a
+ * presence bool. A metric that is not live yet arrives absent from the manager;
+ * we surface that as bHas... = false rather than a fabricated 0, so a UI can
+ * render an em-dash and never imply real activity that did not happen.
+ */
+USTRUCT(BlueprintType)
+struct ODDSOCKETS_API FOddSocketsUsageStats
+{
+    GENERATED_BODY()
+
+    /** Whether the request succeeded and the fields below are populated. */
+    UPROPERTY(BlueprintReadOnly, Category = "Usage")
+    bool bSuccess = false;
+
+    /** Set when bSuccess is false. */
+    UPROPERTY(BlueprintReadOnly, Category = "Usage")
+    FString Error;
+
+    /** Monthly active users. Valid only when bHasMau is true. */
+    UPROPERTY(BlueprintReadOnly, Category = "Usage")
+    int64 Mau = 0;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Usage")
+    bool bHasMau = false;
+
+    /** Daily active users. Valid only when bHasDau is true. */
+    UPROPERTY(BlueprintReadOnly, Category = "Usage")
+    int64 Dau = 0;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Usage")
+    bool bHasDau = false;
+
+    /** Total messages. Valid only when bHasTotalMessages is true. */
+    UPROPERTY(BlueprintReadOnly, Category = "Usage")
+    int64 TotalMessages = 0;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Usage")
+    bool bHasTotalMessages = false;
+
+    /** Error rate. Valid only when bHasErrorRate is true. */
+    UPROPERTY(BlueprintReadOnly, Category = "Usage")
+    float ErrorRate = 0.0f;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Usage")
+    bool bHasErrorRate = false;
+
+    /** The owner scope the metrics are attributed to. */
+    UPROPERTY(BlueprintReadOnly, Category = "Usage")
+    FString OwnerScope;
+
+    /** Optional human-readable detail from the manager. */
+    UPROPERTY(BlueprintReadOnly, Category = "Usage")
+    FString Detail;
+
+    /** ISO-8601 timestamp of when the metrics were computed. */
+    UPROPERTY(BlueprintReadOnly, Category = "Usage")
+    FString Timestamp;
+
+    FOddSocketsUsageStats()
+    {
+        bSuccess = false;
+        Error = TEXT("");
+        Mau = 0;
+        bHasMau = false;
+        Dau = 0;
+        bHasDau = false;
+        TotalMessages = 0;
+        bHasTotalMessages = false;
+        ErrorRate = 0.0f;
+        bHasErrorRate = false;
+        OwnerScope = TEXT("");
+        Detail = TEXT("");
+        Timestamp = TEXT("");
+    }
+};
+
+/**
  * Message size limits (32KB - industry standard)
  */
 USTRUCT(BlueprintType)
