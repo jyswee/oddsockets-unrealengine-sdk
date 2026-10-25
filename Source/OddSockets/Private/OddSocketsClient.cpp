@@ -25,7 +25,7 @@ AOddSocketsClient::AOddSocketsClient()
 void AOddSocketsClient::BeginPlay()
 {
     Super::BeginPlay();
-    if (!Config.ApiKey.IsEmpty() && Config.bAutoConnect)
+    if (Config.IsValid() && Config.bAutoConnect)
     {
         Initialize(Config);
         ConnectAsync();
@@ -86,6 +86,25 @@ void AOddSocketsClient::PublishBulkAsync(const TArray<FOddSocketsBulkMessage>& M
             Ch->PublishAsync(Msg.Message, Msg.Options);
         }
     }
+}
+
+void AOddSocketsClient::EmitAsync(const FString& EventName, const FString& JsonPayload)
+{
+    if (EventName.IsEmpty() || !WebSocket.IsValid() || !WebSocket->IsConnected()) return;
+
+    // Validate the payload parses as a JSON object so a malformed string never
+    // reaches the wire as a broken frame; an empty payload emits {}.
+    FString Body = JsonPayload.IsEmpty() ? TEXT("{}") : JsonPayload;
+    TSharedPtr<FJsonObject> Parsed;
+    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Body);
+    if (!FJsonSerializer::Deserialize(Reader, Parsed) || !Parsed.IsValid())
+    {
+        OnError.Broadcast(FString::Printf(TEXT("EmitAsync(%s): payload is not a JSON object"), *EventName));
+        return;
+    }
+
+    FString EscapedEvent = EventName.ReplaceCharWithEscapedChar();
+    WebSocket->Send(FString::Printf(TEXT("42[\"%s\",%s]"), *EscapedEvent, *Body));
 }
 
 void AOddSocketsClient::GetUsageStats()
@@ -213,15 +232,20 @@ void AOddSocketsClient::GetWorkerAssignment()
     FString ManagerUrl = UManagerDiscovery::GetManagerUrl(Config.ManagerUrl, DiscoveryError);
     if (!DiscoveryError.IsEmpty())
     {
-        ConnectionState = EOddSocketsConnectionState::Error;
+        ConnectionState = EOddSocketsConnectionState::Failed;
         OnError.Broadcast(DiscoveryError);
         return;
     }
 
     FString UserId = Config.UserId.IsEmpty() ? ClientIdentifier : Config.UserId;
+    // Token clients present the minted token instead of an apiKey; the manager
+    // accepts either (same contract as the JS SDK's selectParams).
+    const FString AuthParam = (!Config.ApiKey.IsEmpty() || !Config.Token.IsSet())
+        ? FString::Printf(TEXT("apiKey=%s"), *Config.ApiKey)
+        : FString::Printf(TEXT("token=%s"), *Config.Token.Token);
     FString Url = FString::Printf(
-        TEXT("%s/api/cluster/select-worker?apiKey=%s&userId=%s&clientIdentifier=%s"),
-        *ManagerUrl, *Config.ApiKey, *UserId, *ClientIdentifier);
+        TEXT("%s/api/cluster/select-worker?%s&userId=%s&clientIdentifier=%s"),
+        *ManagerUrl, *AuthParam, *UserId, *ClientIdentifier);
 
     TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
     Request->SetURL(Url);
@@ -240,7 +264,7 @@ void AOddSocketsClient::OnWorkerAssignmentResponse(FHttpRequestPtr Request, FHtt
             ScheduleReconnect();
         else
         {
-            ConnectionState = EOddSocketsConnectionState::Error;
+            ConnectionState = EOddSocketsConnectionState::Failed;
             OnMaxReconnectAttemptsReached.Broadcast();
         }
         return;
@@ -251,7 +275,7 @@ void AOddSocketsClient::OnWorkerAssignmentResponse(FHttpRequestPtr Request, FHtt
     if (!FJsonSerializer::Deserialize(Reader, Json) || !Json.IsValid())
     {
         OnError.Broadcast(TEXT("Invalid worker response JSON"));
-        ConnectionState = EOddSocketsConnectionState::Error;
+        ConnectionState = EOddSocketsConnectionState::Failed;
         return;
     }
 
@@ -261,7 +285,7 @@ void AOddSocketsClient::OnWorkerAssignmentResponse(FHttpRequestPtr Request, FHtt
     if (WorkerUrl.IsEmpty() || WorkerId.IsEmpty())
     {
         OnError.Broadcast(TEXT("Missing worker URL/ID"));
-        ConnectionState = EOddSocketsConnectionState::Error;
+        ConnectionState = EOddSocketsConnectionState::Failed;
         return;
     }
 
@@ -302,14 +326,17 @@ void AOddSocketsClient::SetupWebSocketEventHandlers()
 
 void AOddSocketsClient::OnWebSocketConnected()
 {
-    ConnectionState = EOddSocketsConnectionState::Connected;
-    ReconnectAttempts = 0;
-    OnConnected.Broadcast();
+    // Transport is up, but the client is not usable until the Socket.IO
+    // namespace CONNECT is acknowledged ("40" ack in HandleSocketFrame). The
+    // auth payload rides that CONNECT packet — the worker's io.use middleware
+    // reads handshake.auth.apiKey / handshake.auth.token from it and rejects
+    // the namespace otherwise ("API key required"). OnConnected is broadcast
+    // on the ack, not here.
 }
 
 void AOddSocketsClient::OnWebSocketConnectionError(const FString& Error)
 {
-    ConnectionState = EOddSocketsConnectionState::Error;
+    ConnectionState = EOddSocketsConnectionState::Failed;
     OnError.Broadcast(Error);
     if (ReconnectAttempts < Config.ReconnectAttempts)
         ScheduleReconnect();
@@ -342,8 +369,53 @@ void AOddSocketsClient::HandleSocketFrame(const FString& Frame)
         return;
     }
 
+    // Engine.IO OPEN ("0{...}"): the transport is ready for Socket.IO packets.
+    // Send the namespace CONNECT ("40{auth}") carrying our credentials — the
+    // worker authenticates from handshake.auth and will not deliver or accept
+    // any event until this handshake completes.
+    if (Frame.StartsWith(TEXT("0")))
+    {
+        TSharedRef<FJsonObject> Auth = MakeShared<FJsonObject>();
+        if (!Config.ApiKey.IsEmpty())
+            Auth->SetStringField(TEXT("apiKey"), Config.ApiKey);
+        else if (Config.Token.IsSet())
+            Auth->SetStringField(TEXT("token"), Config.Token.Token);
+        Auth->SetStringField(TEXT("userId"),
+            Config.UserId.IsEmpty() ? ClientIdentifier : Config.UserId);
+
+        FString AuthJson;
+        TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&AuthJson);
+        FJsonSerializer::Serialize(Auth, Writer);
+        if (WebSocket.IsValid() && WebSocket->IsConnected())
+            WebSocket->Send(FString::Printf(TEXT("40%s"), *AuthJson));
+        return;
+    }
+
+    // Socket.IO CONNECT ack ("40{...}"): authenticated and joined — NOW the
+    // client is usable.
+    if (Frame.StartsWith(TEXT("40")))
+    {
+        ConnectionState = EOddSocketsConnectionState::Connected;
+        ReconnectAttempts = 0;
+        OnConnected.Broadcast();
+        return;
+    }
+
+    // Socket.IO CONNECT_ERROR ("44{\"message\":...}"): auth was refused.
+    if (Frame.StartsWith(TEXT("44")))
+    {
+        FString Reason = Frame.Mid(2);
+        TSharedPtr<FJsonObject> Err;
+        TSharedRef<TJsonReader<>> ErrReader = TJsonReaderFactory<>::Create(Reason);
+        if (FJsonSerializer::Deserialize(ErrReader, Err) && Err.IsValid())
+            Err->TryGetStringField(TEXT("message"), Reason);
+        ConnectionState = EOddSocketsConnectionState::Failed;
+        OnError.Broadcast(FString::Printf(TEXT("Connection refused: %s"), *Reason));
+        return;
+    }
+
     // Only Socket.IO EVENT frames (Engine.IO msg "4" + Socket.IO event "2")
-    // carry application payloads: 42["event",{...}]. Ignore handshake/ack frames.
+    // carry application payloads: 42["event",{...}]. Ignore other ack frames.
     if (!Frame.StartsWith(TEXT("42"))) return;
 
     // Skip the "42" prefix plus any numeric ack id before the payload array.
@@ -439,7 +511,7 @@ void AOddSocketsClient::ScheduleReconnect()
     FOddSocketsReconnectInfo Info;
     Info.Attempt = ReconnectAttempts;
     Info.MaxAttempts = Config.ReconnectAttempts;
-    Info.DelayMs = Delay;
+    Info.Delay = Delay;
     OnReconnecting.Broadcast(Info);
 
     GetWorld()->GetTimerManager().SetTimer(

@@ -122,6 +122,15 @@ public:
     UFUNCTION(BlueprintCallable, Category = "OddSockets")
     void GetUsageStats();
 
+    /**
+     * Emit a raw named event with a JSON payload (Unity-parity EmitAsync). The
+     * string must parse as a JSON object; it is sent verbatim as the event's
+     * payload. Any server response or broadcast comes back on OnEnhancedEvent /
+     * On(), keyed by the event name the worker replies with.
+     */
+    UFUNCTION(BlueprintCallable, Category = "OddSockets")
+    void EmitAsync(const FString& EventName, const FString& JsonPayload);
+
     UFUNCTION(BlueprintPure, Category = "OddSockets")
     EOddSocketsConnectionState GetConnectionState() const { return ConnectionState; }
 

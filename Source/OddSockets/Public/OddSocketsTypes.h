@@ -31,6 +31,28 @@ enum class EOddSocketsLogLevel : uint8
 };
 
 /**
+ * A short-lived minted realtime token (the front-door /v1/token exchange),
+ * used INSTEAD of an API key by game clients. Mirrors the Unity SDK's
+ * OddSocketsToken { Token, ExpiresAt } so converted projects map 1:1.
+ */
+USTRUCT(BlueprintType)
+struct ODDSOCKETS_API FOddSocketsToken
+{
+    GENERATED_BODY()
+
+    /** The minted realtime token string. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Token Auth")
+    FString Token;
+
+    /** Token expiry, ISO-8601, as returned by the mint. Informational: the
+     *  worker enforces the real expiry from the token itself. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Token Auth")
+    FString ExpiresAt;
+
+    bool IsSet() const { return !Token.IsEmpty(); }
+};
+
+/**
  * Configuration structure for OddSockets client
  */
 USTRUCT(BlueprintType)
@@ -38,9 +60,17 @@ struct ODDSOCKETS_API FOddSocketsConfig
 {
     GENERATED_BODY()
 
-    /** Your OddSockets API key */
+    /** Your OddSockets API key. Leave empty when authenticating with Token. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Required Settings")
     FString ApiKey;
+
+    /**
+     * Minted realtime token (front-door /v1/token), used instead of ApiKey by
+     * game clients. When both are set, ApiKey wins — matching the worker, which
+     * only takes the token path when no API key is presented.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Required Settings")
+    FOddSocketsToken Token;
 
     /** User identifier (auto-generated if empty) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Optional Settings")
@@ -85,10 +115,11 @@ struct ODDSOCKETS_API FOddSocketsConfig
         LogLevel = EOddSocketsLogLevel::Info;
     }
 
-    /** Validates the configuration */
+    /** Validates the configuration: either an API key or a minted token. */
     bool IsValid() const
     {
-        return !ApiKey.IsEmpty() && Timeout > 0 && ReconnectAttempts >= 0 && HeartbeatInterval >= 0;
+        return (!ApiKey.IsEmpty() || Token.IsSet())
+            && Timeout > 0 && ReconnectAttempts >= 0 && HeartbeatInterval >= 0;
     }
 };
 
