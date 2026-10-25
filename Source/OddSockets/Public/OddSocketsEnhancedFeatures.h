@@ -7,6 +7,10 @@
 
 class AOddSocketsClient;
 
+/** Payload for every typed game event: the broadcast's raw JSON string. The
+ *  game parses it itself (same contract as the Unity SDK's game events). */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOddSocketsGameEvent, const FString&, JsonPayload);
+
 /**
  * Enhanced (Slack-like) real-time features for the OddSockets Unreal Engine SDK.
  *
@@ -26,8 +30,44 @@ class ODDSOCKETS_API UOddSocketsEnhancedFeatures : public UObject
     GENERATED_BODY()
 
 public:
-    /** Bind this helper to a connected client before calling any method. */
+    /** Bind this helper to a connected client before calling any method. Also
+     *  wires the typed game-event delegates below to their broadcasts. */
     void Initialize(AOddSocketsClient* InClient);
+
+    // ==================== TYPED GAME EVENTS (Unity parity) =====================
+    //
+    // Blueprint-assignable delegates for the game-feature broadcasts, named as
+    // the Unity SDK names them so a converted project binds 1:1. Each fires with
+    // the broadcast's raw JSON payload. The generic AOddSocketsClient::
+    // OnEnhancedEvent still fires for every broadcast, these included.
+
+    /** Inbound event "challenge_invited": a directed invite arrived for this player. */
+    UPROPERTY(BlueprintAssignable, Category = "OddSockets|Enhanced|Challenges")
+    FOddSocketsGameEvent OnChallengeInvited;
+
+    /** Inbound event "challenge_reply_received": your invite was accepted or declined. */
+    UPROPERTY(BlueprintAssignable, Category = "OddSockets|Enhanced|Challenges")
+    FOddSocketsGameEvent OnChallengeReplyReceived;
+
+    /** Inbound event "challenge_invite_cancelled": an invite sent to you was withdrawn. */
+    UPROPERTY(BlueprintAssignable, Category = "OddSockets|Enhanced|Challenges")
+    FOddSocketsGameEvent OnChallengeInviteCancelled;
+
+    /** Ack "challenge_invites": the pending-invite inbox (GetChallengeInvitesAsync). */
+    UPROPERTY(BlueprintAssignable, Category = "OddSockets|Enhanced|Challenges")
+    FOddSocketsGameEvent OnChallengeInvites;
+
+    /** Ack "achievement_state": persisted achievement state (GetAchievementsAsync). */
+    UPROPERTY(BlueprintAssignable, Category = "OddSockets|Enhanced|Challenges")
+    FOddSocketsGameEvent OnAchievementState;
+
+    /** Ack "challenge_standings_success": leaderboard standings (GetStandingsAsync). */
+    UPROPERTY(BlueprintAssignable, Category = "OddSockets|Enhanced|Challenges")
+    FOddSocketsGameEvent OnStandingsData;
+
+    /** Inbound event "leaderboard_rank_change": a ranked challenge's order moved. */
+    UPROPERTY(BlueprintAssignable, Category = "OddSockets|Enhanced|Challenges")
+    FOddSocketsGameEvent OnLeaderboardRankChange;
 
     // ==================== TYPING INDICATORS ====================
 
@@ -172,10 +212,89 @@ public:
     UFUNCTION(BlueprintCallable, Category = "OddSockets|Enhanced|Challenges")
     void GetChallengeInvites();
 
+    // ==================== UNITY-NAMED ALIASES (*Async) ========================
+    //
+    // The Unity SDK's method names, so unity2unreal-style converters map calls
+    // 1:1 without a rename table. Each delegates to the method above it aliases;
+    // "Async" describes the delivery contract (the result arrives on the typed
+    // delegate / OnEnhancedEvent, never as a return value), same as in Unity.
+
+    /** Unity alias for CreateChallenge. Ack arrives on OnEnhancedEvent ("challenge_create_success"). */
+    UFUNCTION(BlueprintCallable, Category = "OddSockets|Enhanced|Challenges")
+    void CreateChallengeAsync(const FString& ChallengeId, const FString& Metric, bool bRanked = false)
+    {
+        CreateChallenge(ChallengeId, Metric, bRanked);
+    }
+
+    /** Unity alias for ReportProgress. Ranked challenges broadcast OnLeaderboardRankChange. */
+    UFUNCTION(BlueprintCallable, Category = "OddSockets|Enhanced|Challenges")
+    void ReportProgressAsync(const FString& ChallengeId, float Value)
+    {
+        ReportProgress(ChallengeId, Value);
+    }
+
+    /** Unity alias for GetStandings. Result arrives on OnStandingsData. */
+    UFUNCTION(BlueprintCallable, Category = "OddSockets|Enhanced|Challenges")
+    void GetStandingsAsync(const FString& ChallengeId, int32 Limit = 20)
+    {
+        GetStandings(ChallengeId, Limit, 0);
+    }
+
+    /** Unity alias for UnlockAchievement. State broadcasts arrive on OnAchievementState after a query. */
+    UFUNCTION(BlueprintCallable, Category = "OddSockets|Enhanced|Challenges")
+    void UnlockAchievementAsync(const FString& AchievementId, const FString& Name = TEXT(""),
+                                const FString& Tier = TEXT(""), float PercentComplete = -1.0f)
+    {
+        UnlockAchievement(AchievementId, Name, Tier, PercentComplete);
+    }
+
+    /** Unity alias for GetAchievements (all achievements). Result arrives on OnAchievementState. */
+    UFUNCTION(BlueprintCallable, Category = "OddSockets|Enhanced|Challenges")
+    void GetAchievementsAsync()
+    {
+        GetAchievements();
+    }
+
+    /** Unity alias for SendChallengeInvite. Invitee receives OnChallengeInvited. */
+    UFUNCTION(BlueprintCallable, Category = "OddSockets|Enhanced|Challenges")
+    void SendChallengeInviteAsync(const FString& ToUserId, const FString& Type = TEXT("match"),
+                                  const FString& Payload = TEXT(""), int32 TtlSec = 300)
+    {
+        SendChallengeInvite(ToUserId, Type, Payload, TtlSec);
+    }
+
+    /**
+     * Unity alias for ReplyChallengeInvite. The third argument rides the wire's
+     * "reason" field and is relayed to the inviter's OnChallengeReplyReceived
+     * (the original invite payload is echoed back alongside it).
+     */
+    UFUNCTION(BlueprintCallable, Category = "OddSockets|Enhanced|Challenges")
+    void ReplyChallengeInviteAsync(const FString& InviteId, bool bAccept, const FString& Payload = TEXT(""))
+    {
+        ReplyChallengeInvite(InviteId, bAccept, Payload);
+    }
+
+    /** Unity alias for CancelChallengeInvite. Invitee receives OnChallengeInviteCancelled. */
+    UFUNCTION(BlueprintCallable, Category = "OddSockets|Enhanced|Challenges")
+    void CancelChallengeInviteAsync(const FString& InviteId)
+    {
+        CancelChallengeInvite(InviteId);
+    }
+
+    /** Unity alias for GetChallengeInvites. Result arrives on OnChallengeInvites. */
+    UFUNCTION(BlueprintCallable, Category = "OddSockets|Enhanced|Challenges")
+    void GetChallengeInvitesAsync()
+    {
+        GetChallengeInvites();
+    }
+
 private:
     /** Serialize Payload and emit it as a Socket.IO event over the client socket. */
     void Emit(const FString& EventName, const TSharedRef<FJsonObject>& Payload);
 
     UPROPERTY()
     AOddSocketsClient* Client = nullptr;
+
+    /** Typed delegates are registered on the client once; see Initialize. */
+    bool bEventsWired = false;
 };

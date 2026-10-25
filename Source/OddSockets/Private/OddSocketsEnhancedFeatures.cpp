@@ -16,6 +16,34 @@
 void UOddSocketsEnhancedFeatures::Initialize(AOddSocketsClient* InClient)
 {
     Client = InClient;
+
+    // Wire the typed game-event delegates to their broadcasts, once per bound
+    // client. The client's native handler table outlives re-Initialize calls, so
+    // registering again would double-fire every delegate.
+    if (!Client || bEventsWired) return;
+    bEventsWired = true;
+
+    // Weak self: the client actor can outlive this UObject, and a handler
+    // firing into a GC'd object is a crash, not a missed event.
+    TWeakObjectPtr<UOddSocketsEnhancedFeatures> Self(this);
+    struct FWireEntry { const TCHAR* Event; FOddSocketsGameEvent UOddSocketsEnhancedFeatures::* Delegate; };
+    static const FWireEntry Wiring[] = {
+        { TEXT("challenge_invited"),           &UOddSocketsEnhancedFeatures::OnChallengeInvited },
+        { TEXT("challenge_reply_received"),    &UOddSocketsEnhancedFeatures::OnChallengeReplyReceived },
+        { TEXT("challenge_invite_cancelled"),  &UOddSocketsEnhancedFeatures::OnChallengeInviteCancelled },
+        { TEXT("challenge_invites"),           &UOddSocketsEnhancedFeatures::OnChallengeInvites },
+        { TEXT("achievement_state"),           &UOddSocketsEnhancedFeatures::OnAchievementState },
+        { TEXT("challenge_standings_success"), &UOddSocketsEnhancedFeatures::OnStandingsData },
+        { TEXT("leaderboard_rank_change"),     &UOddSocketsEnhancedFeatures::OnLeaderboardRankChange },
+    };
+    for (const FWireEntry& W : Wiring)
+    {
+        FOddSocketsGameEvent UOddSocketsEnhancedFeatures::* Delegate = W.Delegate;
+        Client->On(W.Event, [Self, Delegate](const FString& JsonPayload)
+        {
+            if (Self.IsValid()) (Self.Get()->*Delegate).Broadcast(JsonPayload);
+        });
+    }
 }
 
 void UOddSocketsEnhancedFeatures::Emit(const FString& EventName, const TSharedRef<FJsonObject>& Payload)

@@ -22,6 +22,45 @@ Channel->OnMessage.AddDynamic(this, &AMyActor::OnMessageReceived);
 Channel->SubscribeAsync();
 ```
 
+## Game Features
+
+Scored challenges, leaderboards, achievements and directed 1:1 invites, with
+Unity-parity method names (`*Async`) so a project ported from the Unity SDK maps
+calls and events 1:1.
+
+```cpp
+UOddSocketsEnhancedFeatures* Game = NewObject<UOddSocketsEnhancedFeatures>();
+Game->Initialize(Client);
+
+// Typed events (Blueprint-assignable), raw JSON payloads
+Game->OnChallengeInvited.AddDynamic(this, &AMyActor::OnInvited);
+Game->OnLeaderboardRankChange.AddDynamic(this, &AMyActor::OnRankChange);
+Game->OnStandingsData.AddDynamic(this, &AMyActor::OnStandings);
+
+// Versus flow: invite -> reply -> ranked challenge -> progress -> standings
+Game->SendChallengeInviteAsync("player-2", "match", TEXT("{\"arena\":\"vs\"}"));
+Game->CreateChallengeAsync("harvest-league", "score", /*bRanked=*/true);
+Game->ReportProgressAsync("harvest-league", 250.f);
+Game->GetStandingsAsync("harvest-league", 10);
+Game->UnlockAchievementAsync("first-win", "First Win", "bronze");
+```
+
+Raw named events ride `Client->EmitAsync(EventName, JsonPayload)`; replies and
+broadcasts arrive on the typed delegates above or the generic
+`Client->OnEnhancedEvent`.
+
+## Token Auth
+
+Game clients can authenticate with a short-lived minted realtime token instead
+of an API key (keep keys off player devices):
+
+```cpp
+FOddSocketsConfig Config;
+Config.Token.Token = MintedToken;        // from your server's /v1/token exchange
+Config.Token.ExpiresAt = MintedExpiresAt;
+Config.UserId = PlayerId;
+```
+
 ## Get an API Key
 
 ```bash
