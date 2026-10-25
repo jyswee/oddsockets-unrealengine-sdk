@@ -72,6 +72,14 @@ struct ODDSOCKETS_API FOddSocketsConfig
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Required Settings")
     FOddSocketsToken Token;
 
+    /**
+     * How many seconds before Token.ExpiresAt the client asks its token
+     * provider for a fresh token (Unity parity: TokenRefreshLeadMs). Only
+     * used when a token provider is set on the client.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Connection Settings", meta = (ClampMin = "5", ClampMax = "3600"))
+    float TokenRefreshLeadSeconds = 60.0f;
+
     /** User identifier (auto-generated if empty) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Optional Settings")
     FString UserId;

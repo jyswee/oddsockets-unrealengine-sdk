@@ -192,11 +192,14 @@ public:
                              const FString& Channel = TEXT(""), const FString& InviteId = TEXT(""));
 
     /**
-     * Accept or decline an invite you received.
+     * Accept or decline an invite you received. Payload (a JSON object string)
+     * reaches the inviter as "replyPayload" on OnChallengeReplyReceived; Reason
+     * rides the wire's "reason" field alongside it.
      * Wire event: challenge_reply. Paired ack: "challenge_reply_success" (err "challenge_reply").
      */
     UFUNCTION(BlueprintCallable, Category = "OddSockets|Enhanced|Challenges")
-    void ReplyChallengeInvite(const FString& InviteId, bool bAccept, const FString& Reason = TEXT(""));
+    void ReplyChallengeInvite(const FString& InviteId, bool bAccept,
+                              const FString& Payload = TEXT(""), const FString& Reason = TEXT(""));
 
     /**
      * Cancel an invite you sent (inviter only).
@@ -264,14 +267,17 @@ public:
     }
 
     /**
-     * Unity alias for ReplyChallengeInvite. The third argument rides the wire's
-     * "reason" field and is relayed to the inviter's OnChallengeReplyReceived
-     * (the original invite payload is echoed back alongside it).
+     * Unity alias for ReplyChallengeInvite — same argument order as the Unity
+     * SDK: (inviteId, accept, payload, reason). Payload is a JSON object string
+     * sent as the wire's "payload" and relayed to the inviter as "replyPayload"
+     * on OnChallengeReplyReceived (the original invite payload is echoed back
+     * alongside it); Reason rides the wire's "reason" field.
      */
     UFUNCTION(BlueprintCallable, Category = "OddSockets|Enhanced|Challenges")
-    void ReplyChallengeInviteAsync(const FString& InviteId, bool bAccept, const FString& Payload = TEXT(""))
+    void ReplyChallengeInviteAsync(const FString& InviteId, bool bAccept,
+                                   const FString& Payload = TEXT(""), const FString& Reason = TEXT(""))
     {
-        ReplyChallengeInvite(InviteId, bAccept, Payload);
+        ReplyChallengeInvite(InviteId, bAccept, Payload, Reason);
     }
 
     /** Unity alias for CancelChallengeInvite. Invitee receives OnChallengeInviteCancelled. */

@@ -19,6 +19,8 @@ Client->ConnectAsync();
 
 UOddSocketsChannel* Channel = Client->GetChannel("my-channel");
 Channel->OnMessage.AddDynamic(this, &AMyActor::OnMessageReceived);
+Channel->OnPresenceChange.AddDynamic(this, &AMyActor::OnRosterChanged); // joins/leaves
+Channel->OnHistory.AddDynamic(this, &AMyActor::OnHistoryLoaded);       // GetHistoryAsync results
 Channel->SubscribeAsync();
 ```
 
@@ -38,7 +40,11 @@ Game->OnLeaderboardRankChange.AddDynamic(this, &AMyActor::OnRankChange);
 Game->OnStandingsData.AddDynamic(this, &AMyActor::OnStandings);
 
 // Versus flow: invite -> reply -> ranked challenge -> progress -> standings
+// Payloads are JSON object strings and travel as objects (Unity-compatible).
 Game->SendChallengeInviteAsync("player-2", "match", TEXT("{\"arena\":\"vs\"}"));
+// Reply: (inviteId, accept, payload, reason) — payload reaches the inviter
+// as "replyPayload" on OnChallengeReplyReceived, reason rides "reason".
+Game->ReplyChallengeInviteAsync(InviteId, true, TEXT("{\"loadout\":\"axe\"}"));
 Game->CreateChallengeAsync("harvest-league", "score", /*bRanked=*/true);
 Game->ReportProgressAsync("harvest-league", 250.f);
 Game->GetStandingsAsync("harvest-league", 10);
@@ -59,6 +65,24 @@ FOddSocketsConfig Config;
 Config.Token.Token = MintedToken;        // from your server's /v1/token exchange
 Config.Token.ExpiresAt = MintedExpiresAt;
 Config.UserId = PlayerId;
+```
+
+For a shipping game, set a token provider instead of a static token: it is
+called before every (re)connect and again `Config.TokenRefreshLeadSeconds`
+before expiry, so a reconnect never reuses a dead token.
+
+```cpp
+// C++: fetch a fresh token, then hand it to the callback (game thread).
+Client->TokenProvider = [this](TFunction<void(const FOddSocketsToken&)> OnToken)
+{
+    MintRealtimeToken([OnToken](const FString& Token, const FString& ExpiresAt)
+    {
+        FOddSocketsToken Fresh; Fresh.Token = Token; Fresh.ExpiresAt = ExpiresAt;
+        OnToken(Fresh);
+    });
+};
+
+// Blueprint: bind OnTokenRequested and answer each firing with ProvideToken.
 ```
 
 ## Get an API Key

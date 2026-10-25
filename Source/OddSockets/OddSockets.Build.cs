@@ -51,8 +51,10 @@ public class OddSockets : ModuleRules
         // against the no-RTTI engine libs (undefined typeinfo for UObject etc).
         bEnableExceptions = true;
 
-        // Definitions for the module
-        PublicDefinitions.Add("ODDSOCKETS_API=DLLEXPORT");
+        // Definitions for the module. ODDSOCKETS_API itself is UBT-generated
+        // (DLLEXPORT here, DLLIMPORT in dependents); defining it manually
+        // propagates DLLEXPORT into every dependent module and trips
+        // -Wmacro-redefined under -Werror.
         PublicDefinitions.Add("WITH_ODDSOCKETS=1");
 
         // Platform-specific settings

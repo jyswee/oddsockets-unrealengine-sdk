@@ -177,6 +177,31 @@ void UOddSocketsEnhancedFeatures::GetAchievements(const FString& AchievementId)
     Emit(TEXT("achievement_query"), Payload);
 }
 
+namespace
+{
+    // The Unity SDK sends invite/reply payloads as JSON objects; a payload
+    // relayed as a quoted string is unparseable on the other engine. Parse
+    // the caller's string and attach the object; only a non-JSON string is
+    // sent as-is.
+    void SetJsonPayloadField(const TSharedRef<FJsonObject>& Target, const FString& FieldName, const FString& PayloadString)
+    {
+        if (PayloadString.IsEmpty())
+        {
+            return;
+        }
+        TSharedPtr<FJsonObject> Parsed;
+        const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(PayloadString);
+        if (FJsonSerializer::Deserialize(Reader, Parsed) && Parsed.IsValid())
+        {
+            Target->SetObjectField(FieldName, Parsed);
+        }
+        else
+        {
+            Target->SetStringField(FieldName, PayloadString);
+        }
+    }
+}
+
 void UOddSocketsEnhancedFeatures::SendChallengeInvite(const FString& ToUserId, const FString& Type,
                                                       const FString& Payload_, int32 Ttl,
                                                       const FString& Channel, const FString& InviteId)
@@ -184,7 +209,7 @@ void UOddSocketsEnhancedFeatures::SendChallengeInvite(const FString& ToUserId, c
     TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
     Payload->SetStringField(TEXT("toUserId"), ToUserId);
     if (!Type.IsEmpty()) Payload->SetStringField(TEXT("type"), Type);
-    if (!Payload_.IsEmpty()) Payload->SetStringField(TEXT("payload"), Payload_);
+    SetJsonPayloadField(Payload, TEXT("payload"), Payload_);
     Payload->SetNumberField(TEXT("ttl"), Ttl);
     if (!Channel.IsEmpty()) Payload->SetStringField(TEXT("channel"), Channel);
     if (!InviteId.IsEmpty()) Payload->SetStringField(TEXT("inviteId"), InviteId);
@@ -192,11 +217,12 @@ void UOddSocketsEnhancedFeatures::SendChallengeInvite(const FString& ToUserId, c
 }
 
 void UOddSocketsEnhancedFeatures::ReplyChallengeInvite(const FString& InviteId, bool bAccept,
-                                                       const FString& Reason)
+                                                       const FString& Payload_, const FString& Reason)
 {
     TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
     Payload->SetStringField(TEXT("inviteId"), InviteId);
     Payload->SetBoolField(TEXT("accept"), bAccept);
+    SetJsonPayloadField(Payload, TEXT("payload"), Payload_);
     if (!Reason.IsEmpty()) Payload->SetStringField(TEXT("reason"), Reason);
     Emit(TEXT("challenge_reply"), Payload);
 }

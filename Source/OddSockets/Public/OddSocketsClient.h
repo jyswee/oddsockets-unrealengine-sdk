@@ -25,6 +25,10 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnError, const FString&, ErrorMessa
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnWorkerAssigned, const FOddSocketsWorkerAssignmentInfo&, WorkerInfo);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnReconnecting, const FOddSocketsReconnectInfo&, ReconnectInfo);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnMaxReconnectAttemptsReached);
+// Fired when the client needs a fresh realtime token (before a (re)connect in
+// token mode, and TokenRefreshLeadSeconds ahead of the current token's
+// ExpiresAt). Answer by calling ProvideToken with the newly minted token.
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnTokenRequested);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnEnhancedEvent, const FString&, EventName, const FString&, JsonPayload);
 
 // Fired when a GetUsageStats request completes (success or failure — inspect
@@ -82,6 +86,19 @@ public:
     UPROPERTY(BlueprintAssignable, Category = "OddSockets Events")
     FOnMaxReconnectAttemptsReached OnMaxReconnectAttemptsReached;
 
+    // Blueprint token provider: bind this and answer each firing with
+    // ProvideToken. C++ callers set TokenProvider below instead.
+    UPROPERTY(BlueprintAssignable, Category = "OddSockets Events")
+    FOnTokenRequested OnTokenRequested;
+
+    // Native (C++) token provider (Unity parity: OddSocketsUnityConfig.
+    // TokenProvider). Called before every (re)connect and again
+    // Config.TokenRefreshLeadSeconds before the current token's ExpiresAt;
+    // invoke the callback (game thread) with the freshly minted token. Takes
+    // precedence over OnTokenRequested when both are set. Not a UPROPERTY:
+    // TFunction is C++-only.
+    TFunction<void(TFunction<void(const FOddSocketsToken&)>)> TokenProvider;
+
     // Fires for every enhanced (Slack-like) broadcast the worker delivers,
     // e.g. "user_typing", "reaction_added". Payload is the raw JSON string.
     //
@@ -104,6 +121,15 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "OddSockets")
     void ConnectAsync();
+
+    /**
+     * Hand the client a freshly minted realtime token. Call it in answer to
+     * OnTokenRequested (or any time your game mints a new token). Updates
+     * Config.Token, schedules the next refresh, and resumes a pending
+     * (re)connect that was waiting on the token.
+     */
+    UFUNCTION(BlueprintCallable, Category = "OddSockets")
+    void ProvideToken(const FOddSocketsToken& FreshToken);
 
     UFUNCTION(BlueprintCallable, Category = "OddSockets")
     void Disconnect();
@@ -168,12 +194,17 @@ private:
     FString ClientIdentifier;
     FOddSocketsSessionInfo SessionInfo;
     FTimerHandle ReconnectTimerHandle;
+    FTimerHandle TokenRefreshTimerHandle;
+    bool bAwaitingToken = false;
 
     // Private methods
     void GetWorkerAssignment();
     void OnWorkerAssignmentResponse(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);
     void OnUsageStatsResponse(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);
     void ConnectToWorker();
+    bool HasTokenProvider() const;
+    void RequestFreshToken();
+    void ScheduleTokenRefresh();
     void SetupWebSocketEventHandlers();
     void ScheduleReconnect();
     void OnWebSocketConnected();

@@ -56,7 +56,72 @@ void AOddSocketsClient::ConnectAsync()
 
     ConnectionState = EOddSocketsConnectionState::Connecting;
     OnConnecting.Broadcast();
+
+    // Token mode with a provider: fetch a fresh token before every (re)connect
+    // so a reconnect after expiry never reuses a dead token. The connect
+    // resumes in ProvideToken.
+    if (Config.ApiKey.IsEmpty() && HasTokenProvider())
+    {
+        bAwaitingToken = true;
+        RequestFreshToken();
+        return;
+    }
     GetWorkerAssignment();
+}
+
+bool AOddSocketsClient::HasTokenProvider() const
+{
+    return static_cast<bool>(TokenProvider) || OnTokenRequested.IsBound();
+}
+
+void AOddSocketsClient::RequestFreshToken()
+{
+    if (TokenProvider)
+    {
+        TWeakObjectPtr<AOddSocketsClient> Self(this);
+        TokenProvider([Self](const FOddSocketsToken& FreshToken)
+        {
+            if (Self.IsValid())
+            {
+                Self->ProvideToken(FreshToken);
+            }
+        });
+    }
+    else
+    {
+        OnTokenRequested.Broadcast();
+    }
+}
+
+void AOddSocketsClient::ProvideToken(const FOddSocketsToken& FreshToken)
+{
+    Config.Token = FreshToken;
+    ScheduleTokenRefresh();
+
+    if (bAwaitingToken)
+    {
+        bAwaitingToken = false;
+        if (ConnectionState == EOddSocketsConnectionState::Connecting)
+        {
+            GetWorkerAssignment();
+        }
+    }
+}
+
+void AOddSocketsClient::ScheduleTokenRefresh()
+{
+    if (!GetWorld()) return;
+    GetWorld()->GetTimerManager().ClearTimer(TokenRefreshTimerHandle);
+    if (!HasTokenProvider()) return;
+
+    FDateTime Expiry;
+    if (!FDateTime::ParseIso8601(*Config.Token.ExpiresAt, Expiry)) return;
+
+    const double SecondsUntilRefresh =
+        (Expiry - FDateTime::UtcNow()).GetTotalSeconds() - Config.TokenRefreshLeadSeconds;
+    GetWorld()->GetTimerManager().SetTimer(
+        TokenRefreshTimerHandle, this, &AOddSocketsClient::RequestFreshToken,
+        FMath::Max(1.0f, static_cast<float>(SecondsUntilRefresh)), false);
 }
 
 void AOddSocketsClient::Disconnect()
@@ -478,6 +543,110 @@ void AOddSocketsClient::RouteEvent(const FString& EventName, const TSharedPtr<FJ
             (*Found)->HandleUnsubscribed(Sub);
             return;
         }
+        if (EventName == TEXT("presence_change") && Found)
+        {
+            FOddSocketsChannelPresenceChangeData Change;
+            Change.Channel = ChannelName;
+            Data->TryGetStringField(TEXT("action"), Change.Action);
+            const TSharedPtr<FJsonObject>* UserObj = nullptr;
+            if (Data->TryGetObjectField(TEXT("user"), UserObj))
+            {
+                (*UserObj)->TryGetStringField(TEXT("userId"), Change.User.UserId);
+                FString JoinedAt;
+                if ((*UserObj)->TryGetStringField(TEXT("joinedAt"), JoinedAt))
+                {
+                    FDateTime::ParseIso8601(*JoinedAt, Change.User.JoinedAt);
+                }
+            }
+            (*Found)->HandlePresenceChange(Change);
+            return;
+        }
+        if (EventName == TEXT("presence") && Found)
+        {
+            FOddSocketsChannelPresenceData Pres;
+            Pres.Channel = ChannelName;
+            const TArray<TSharedPtr<FJsonValue>>* Occupants = nullptr;
+            if (Data->TryGetArrayField(TEXT("occupants"), Occupants))
+            {
+                for (const TSharedPtr<FJsonValue>& Entry : *Occupants)
+                {
+                    FOddSocketsPresenceUser User;
+                    const TSharedPtr<FJsonObject>* EntryObj = nullptr;
+                    if (Entry->TryGetObject(EntryObj))
+                    {
+                        (*EntryObj)->TryGetStringField(TEXT("userId"), User.UserId);
+                        FString JoinedAt;
+                        if ((*EntryObj)->TryGetStringField(TEXT("joinedAt"), JoinedAt))
+                        {
+                            FDateTime::ParseIso8601(*JoinedAt, User.JoinedAt);
+                        }
+                    }
+                    else
+                    {
+                        Entry->TryGetString(User.UserId);
+                    }
+                    Pres.Occupants.Add(User);
+                }
+            }
+            Pres.Count = Pres.Occupants.Num();
+            Data->TryGetNumberField(TEXT("occupancy"), Pres.Count);
+            (*Found)->HandlePresence(Pres);
+            return;
+        }
+        if (EventName == TEXT("history") && Found)
+        {
+            FOddSocketsChannelHistoryData Hist;
+            Hist.Channel = ChannelName;
+            const TArray<TSharedPtr<FJsonValue>>* Msgs = nullptr;
+            if (Data->TryGetArrayField(TEXT("messages"), Msgs))
+            {
+                for (const TSharedPtr<FJsonValue>& Entry : *Msgs)
+                {
+                    FOddSocketsChannelMessageData Msg;
+                    Msg.Channel = ChannelName;
+                    const TSharedPtr<FJsonObject>* EntryObj = nullptr;
+                    if (Entry->TryGetObject(EntryObj))
+                    {
+                        // A stored message body may itself be an object; hand it
+                        // to the game re-serialized, same as a live frame would.
+                        const TSharedPtr<FJsonObject>* BodyObj = nullptr;
+                        if ((*EntryObj)->TryGetObjectField(TEXT("message"), BodyObj))
+                        {
+                            const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Msg.Message);
+                            FJsonSerializer::Serialize(BodyObj->ToSharedRef(), Writer);
+                        }
+                        else
+                        {
+                            (*EntryObj)->TryGetStringField(TEXT("message"), Msg.Message);
+                        }
+                        (*EntryObj)->TryGetStringField(TEXT("sender"), Msg.Sender);
+                        FString Timestamp;
+                        if ((*EntryObj)->TryGetStringField(TEXT("timestamp"), Timestamp))
+                        {
+                            FDateTime::ParseIso8601(*Timestamp, Msg.Timestamp);
+                        }
+                    }
+                    Hist.Messages.Add(Msg);
+                }
+            }
+            Hist.Count = Hist.Messages.Num();
+            (*Found)->HandleHistory(Hist);
+            return;
+        }
+        if (EventName == TEXT("published") && Found)
+        {
+            FOddSocketsChannelPublishData Pub;
+            Pub.Channel = ChannelName;
+            Pub.bSuccess = true;
+            Data->TryGetStringField(TEXT("messageId"), Pub.MessageId);
+            FString Timestamp;
+            if (Data->TryGetStringField(TEXT("timestamp"), Timestamp))
+            {
+                FDateTime::ParseIso8601(*Timestamp, Pub.Timestamp);
+            }
+            (*Found)->HandlePublished(Pub);
+            return;
+        }
     }
 
     // Everything else is an enhanced (Slack-like) broadcast: deliver generically
@@ -536,7 +705,11 @@ FString AOddSocketsClient::HashString(const FString& Input)
 void AOddSocketsClient::CleanupResources()
 {
     if (GetWorld())
+    {
         GetWorld()->GetTimerManager().ClearTimer(ReconnectTimerHandle);
+        GetWorld()->GetTimerManager().ClearTimer(TokenRefreshTimerHandle);
+    }
+    bAwaitingToken = false;
     if (WebSocket.IsValid()) { WebSocket->Close(); WebSocket.Reset(); }
     WorkerUrl.Empty();
     WorkerId.Empty();
