@@ -95,47 +95,47 @@ public:
     UMessageSizeValidator();
 
     // Static validation methods
-    UFUNCTION(BlueprintCallable, Category = "OddSockets Message Validation", CallInEditor = true)
+    UFUNCTION(BlueprintCallable, Category = "OddSockets Message Validation")
     static bool ValidateMessageSize(const FString& Message);
 
-    UFUNCTION(BlueprintCallable, Category = "OddSockets Message Validation", CallInEditor = true)
+    UFUNCTION(BlueprintCallable, Category = "OddSockets Message Validation")
     static FOddSocketsMessageSizeInfo GetMessageSizeInfo(const FString& Message);
 
-    UFUNCTION(BlueprintCallable, Category = "OddSockets Message Validation", CallInEditor = true)
+    UFUNCTION(BlueprintCallable, Category = "OddSockets Message Validation")
     static FOddSocketsBulkValidationResult ValidateBulkMessages(const TArray<FString>& Messages);
 
-    UFUNCTION(BlueprintCallable, Category = "OddSockets Message Validation", CallInEditor = true)
+    UFUNCTION(BlueprintCallable, Category = "OddSockets Message Validation")
     static FOddSocketsBulkValidationResult ValidateBulkMessageStructs(const TArray<FOddSocketsBulkMessage>& Messages);
 
     // Size calculation methods
-    UFUNCTION(BlueprintPure, Category = "OddSockets Message Validation", CallInEditor = true)
+    UFUNCTION(BlueprintPure, Category = "OddSockets Message Validation")
     static int32 CalculateMessageSizeBytes(const FString& Message);
 
-    UFUNCTION(BlueprintPure, Category = "OddSockets Message Validation", CallInEditor = true)
+    UFUNCTION(BlueprintPure, Category = "OddSockets Message Validation")
     static float CalculateMessageSizeKB(const FString& Message);
 
     // Limit information
-    UFUNCTION(BlueprintPure, Category = "OddSockets Message Validation", CallInEditor = true)
+    UFUNCTION(BlueprintPure, Category = "OddSockets Message Validation")
     static int32 GetMaxMessageSizeBytes();
 
-    UFUNCTION(BlueprintPure, Category = "OddSockets Message Validation", CallInEditor = true)
+    UFUNCTION(BlueprintPure, Category = "OddSockets Message Validation")
     static int32 GetMaxMessageSizeKB();
 
     // Utility methods
-    UFUNCTION(BlueprintCallable, Category = "OddSockets Message Validation", CallInEditor = true)
+    UFUNCTION(BlueprintCallable, Category = "OddSockets Message Validation")
     static FString FormatSizeForDisplay(int32 SizeBytes);
 
-    UFUNCTION(BlueprintCallable, Category = "OddSockets Message Validation", CallInEditor = true)
+    UFUNCTION(BlueprintCallable, Category = "OddSockets Message Validation")
     static FString GetValidationErrorMessage(int32 MessageSizeBytes);
 
-    UFUNCTION(BlueprintPure, Category = "OddSockets Message Validation", CallInEditor = true)
+    UFUNCTION(BlueprintPure, Category = "OddSockets Message Validation")
     static bool IsMessageSizeValid(int32 SizeBytes);
 
     // Advanced validation
-    UFUNCTION(BlueprintCallable, Category = "OddSockets Message Validation", CallInEditor = true)
+    UFUNCTION(BlueprintCallable, Category = "OddSockets Message Validation")
     static bool ValidateAndLogMessage(const FString& Message, const FString& Context = TEXT(""));
 
-    UFUNCTION(BlueprintCallable, Category = "OddSockets Message Validation", CallInEditor = true)
+    UFUNCTION(BlueprintCallable, Category = "OddSockets Message Validation")
     static FString TruncateMessageToLimit(const FString& Message);
 
 private:

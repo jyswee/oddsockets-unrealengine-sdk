@@ -31,20 +31,12 @@ public class OddSockets : ModuleRules
             }
         );
 
+        // Runtime module: no editor-only dependencies. Editor modules
+        // (UnrealEd, Slate, ...) don't exist in cooked device builds, so
+        // listing them here breaks iOS/Android packaging.
         PrivateDependencyModuleNames.AddRange(
             new string[]
             {
-                "Slate",
-                "SlateCore",
-                "ToolMenus",
-                "EditorStyle",
-                "EditorWidgets",
-                "UnrealEd",
-                "BlueprintGraph",
-                "KismetCompiler",
-                "PropertyEditor",
-                "Sockets",
-                "Networking"
             }
         );
 
@@ -55,10 +47,8 @@ public class OddSockets : ModuleRules
             }
         );
 
-        // Enable RTTI for proper exception handling
-        bUseRTTI = true;
-        
-        // Enable exceptions for error handling
+        // Exceptions don't need RTTI; forcing bUseRTTI on fails the link
+        // against the no-RTTI engine libs (undefined typeinfo for UObject etc).
         bEnableExceptions = true;
 
         // Definitions for the module
