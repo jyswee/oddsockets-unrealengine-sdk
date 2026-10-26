@@ -85,6 +85,19 @@ Client->TokenProvider = [this](TFunction<void(const FOddSocketsToken&)> OnToken)
 // Blueprint: bind OnTokenRequested and answer each firing with ProvideToken.
 ```
 
+## Mobile (iOS / Android)
+
+Unreal mobile builds only stage the engine's CA certificate bundle when peer
+verification is enabled, so without it every secure WebSocket (`wss://`)
+connect fails with `unable to get local issuer certificate` — even though
+plain HTTPS requests work. Add this to your project's `Config/DefaultEngine.ini`
+before packaging for device:
+
+```ini
+[/Script/Engine.NetworkSettings]
+n.VerifyPeer=True
+```
+
 ## Get an API Key
 
 ```bash
